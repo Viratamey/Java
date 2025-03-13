@@ -18,4 +18,4 @@ public class OuterClass {
 }
 ```
 
-You can use the static nested class like this: `OuterClass.StaticNestedClass obj = new OuterClass.StaticNestedClass();`.ass obj = new OuterClass.StaticNestedClass();`.
+You can use the static nested class like this: `OuterClass.StaticNestedClass obj = new OuterClass.StaticNestedClass();`.
