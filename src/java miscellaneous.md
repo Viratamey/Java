@@ -43,3 +43,32 @@ You can use the static nested class like this: `OuterClass.StaticNestedClass obj
     -   You want to define a contract that can be implemented by any class.
     -   You want to enable multiple inheritance of functionality across different class hierarchies.
     -   You are defining behavior that is common across many classes with no need for shared state or implementation.
+
+### **Primitive Data Types**
+
+| **Data Type** | **Size** | **Description** |
+| --- | --- | --- |
+| `byte` | 1 byte (8 bits) | Stores values from -128 to 127. Often used for saving memory in large arrays. |
+| `short` | 2 bytes (16 bits) | Stores values from -32,768 to 32,767. |
+| `int` | 4 bytes (32 bits) | Stores values from -2^31 to 2^31-1 (i.e., -2,147,483,648 to 2,147,483,647). |
+| `long` | 8 bytes (64 bits) | Stores values from -2^63 to 2^63-1. Used for large integers. |
+| `float` | 4 bytes (32 bits) | Stores floating-point numbers with 6-7 digits of precision. |
+| `double` | 8 bytes (64 bits) | Stores floating-point numbers with 15-16 digits of precision. |
+| `char` | 2 bytes (16 bits) | Represents a single Unicode character (i.e., a character from the UTF-16 encoding). |
+| `boolean` | 1 byte (but JVM implementation may vary) | Can store only `true` or `false`. Typically, it takes 1 byte in memory, though the JVM might optimize it for storage in arrays. |
+
+
+-   **Unicode**:
+
+    -   Unicode is a character encoding standard that allows the representation of characters from almost every writing system in the world.
+    -   In order to support a wide range of characters from various languages (including special symbols, emojis, etc.), Unicode requires more than just 1 byte per character. UTF-16 is one of the encoding schemes used to represent Unicode characters.-   
+    
+
+- **UTF-16 Encoding**:
+
+  -   In UTF-16, most commonly used characters are represented by a single 16-bit unit (i.e., 2 bytes). This is why `char` is 2 bytes.
+  -   UTF-16 allows for representing over 65,000 characters using one 16-bit unit, which is more than enough for most characters.
+
+**Unicode is a character set. It translates characters to numbers.**
+
+**UTF-16 is an encoding standard. It translates numbers into binary.**
