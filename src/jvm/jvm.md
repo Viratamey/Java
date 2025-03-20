@@ -23,7 +23,7 @@ It is mainly responsible for three activities. 
 -   Whether the "*.class"* file is related to Class or Interface or Enum.
 -   Modifier, Variables and Method information etc.
 
-After loading the "*.class"* file, JVM creates an object of type Class to represent this file in the heap memory. Please note that this object is of type Class predefined in *java.lang* package. These Class object can be used by the programmer for getting class level information like the name of the class, parent name, methods and variable information etc. To get this object reference we can use *getClass()* method of [Object](https://www.geeksforgeeks.org/object-class-in-java/) class.
+After loading the "*.class"* file, JVM creates an **object of type Class** to represent this file in the **heap memory**. Please note that this object is of type Class predefined in *java.lang* package. These Class object can be used by the programmer for getting class level information like the name of the class, parent name, methods and variable information etc. To get this object reference we can use *getClass()* method of [Object](https://www.geeksforgeeks.org/object-class-in-java/) class.
 
 **Linking:** Performs verification, preparation, and (optionally) resolution.
 
@@ -34,9 +34,9 @@ After loading the "*.class"* file, JVM creates an object of type Class to repre
 **Initialization:** In this phase, all static variables are assigned with their values defined in the code and static block(if any). This is executed from top to bottom in a class and from parent to child in the class hierarchy.\
 In general, there are three class loaders :
 
--   *Bootstrap class loader*: Every JVM implementation must have a bootstrap class loader, capable of loading trusted classes. It loads core java API classes present in the "*JAVA_HOME/jre/lib"* directory. This path is popularly known as the bootstrap path. It is implemented in native languages like C, C++.
--   *Extension class loader*: It is a child of the bootstrap class loader. It loads the classes present in the extensions directories "*JAVA_HOME/jre/lib/ext"*(Extension path) or any other directory specified by the java.ext.dirs system property. It is implemented in java by the *sun.misc.Launcher$ExtClassLoader* class.
--   *System/Application class loader*: It is a child of the extension class loader. It is responsible to load classes from the application classpath. It internally uses Environment Variable which mapped to java.class.path. It is also implemented in Java by the *sun.misc.Launcher$AppClassLoader* class.
+-   ***Bootstrap class loader***: Every JVM implementation must have a bootstrap class loader, capable of loading trusted classes. It loads core java API classes present in the **"*JAVA_HOME/jre/lib"*** directory. This path is popularly known as the bootstrap path. It is implemented in native languages like C, C++.
+-   ***Extension class loader***: It is a child of the bootstrap class loader. It loads the classes present in the extensions directories **"*JAVA_HOME/jre/lib/ext"*(Extension path)** or any other directory specified by the java.ext.dirs system property. It is implemented in java by the *sun.misc.Launcher$ExtClassLoader* class.
+-   ***System/Application class loader***: It is a child of the extension class loader. It is responsible to load classes from the **application classpath**. It internally uses **Environment Variable** which mapped to **java.class.path**. It is also implemented in Java by the *sun.misc.Launcher$AppClassLoader* class.
 
 
 **Note: **JVM follows the Delegation-Hierarchy principle to load classes. System class loader delegate load request to extension class loader and extension class loader delegate request to the bootstrap class loader. If a class found in the boot-strap path, the class is loaded otherwise request again transfers to the extension class loader and then to the system class loader. At last, if the system class loader fails to load class, then we get run-time exception *java.lang.ClassNotFoundException*. 
@@ -45,11 +45,11 @@ In general, there are three class loaders :
 
 **JVM Memory** 
 
-1.  **Method area:** In the method area, all class level information like class name, immediate parent class name, methods and variables information etc. are stored, including static variables. There is only one method area per JVM, and it is a shared resource. 
-2.  **Heap area:** Information of all objects is stored in the heap area. There is also one Heap Area per JVM. It is also a shared resource.
-3.  **Stack area:** For every thread, JVM creates one run-time stack which is stored here. Every block of this stack is called activation record/stack frame which stores methods calls. All local variables of that method are stored in their corresponding frame. After a thread terminates, its run-time stack will be destroyed by JVM. It is not a shared resource.
-4.  **PC Registers:** Store address of current execution instruction of a thread. Obviously, each thread has separate PC Registers.
-5.  **Native method stacks:** For every thread, a separate native stack is created. It stores native method information. 
+1.  **Method area:** In the method area, all class level information like class name, immediate parent class name, methods and variables information etc. are stored, including static variables. There is only **one method area per JVM**, and it is a shared resource. 
+2.  **Heap area:** Information of all objects is stored in the heap area. There is also **one Heap Area per JVM**. It is also a shared resource.
+3.  **Stack area:** **For every thread, JVM creates one run-time stack** which is stored here. Every block of this stack is called activation record/stack frame which stores methods calls. All local variables of that method are stored in their corresponding frame. After a thread terminates, its run-time stack will be destroyed by JVM. It is not a shared resource.
+4.  **PC Registers:** Store address of current execution instruction of a thread. Obviously, **each thread has separate PC Registers.**
+5.  **Native method stacks:** **For every thread, a separate native stack** is created. It stores native method information. 
 
 ![jvm2](https://media.geeksforgeeks.org/wp-content/uploads/jvm-memory-2.jpg)
 
