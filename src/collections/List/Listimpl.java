@@ -70,6 +70,7 @@ public class Listimpl {
         Person p4 = new Person(44,"virat");
         persons.addAll(Arrays.asList(p1, p2, p3));
         persons.add(p4);
+        Collections.sort(persons);
         Person p5 = new Person(27,"sreesanth");
         Person p6= new Person(11,"hardik");
         Person p7 = new Person(27,"rishabh");
@@ -106,8 +107,7 @@ public class Listimpl {
         Comparator<Person> cmp2 = Comparator.comparing(fn);
 //        Comparator<Person> cmp3 = Comparator.comparing(fn1);  // comparing doesnt take bifunction only function
         Function<Person, Person> fn2 = (person1) -> person1;
-        // wont work if Person is not comparable let make it comparable
-//        Comparator<Person> cmp3 = Comparator.comparing(fn2);
+        // below wont work if Person is not comparable let make it comparable
         Comparator<Person> cmp3 = Comparator.comparing(fn2);
         persons.sort(cmp3);
 
