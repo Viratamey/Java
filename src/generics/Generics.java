@@ -1,6 +1,5 @@
 package generics;
 
-import com.sun.istack.internal.NotNull;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -181,7 +180,7 @@ class Cat extends Animal implements Comparable<Cat> {
     }
 
     @Override
-    public int compareTo(@NotNull Cat cat) {
+    public int compareTo(Cat cat) {
         return this.getName().length() - cat.getName().length();
     }
 
