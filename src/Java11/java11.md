@@ -1,14 +1,7 @@
 Java 11 brought several significant changes and enhancements compared to Java 8, building on the features introduced in Java 9 and 10. Here's a detailed overview of the key changes, along with examples:
 
-### 1. **Long-Term Support (LTS)**
 
-Java 11 is a Long-Term Support release, meaning it will receive updates and support for a longer period compared to non-LTS versions.
-
-### 2. **Removal of Java EE and CORBA Modules**
-
-Java 11 removed several modules that were deprecated in earlier versions, including Java EE and CORBA modules.
-
-### 3. **New `HttpClient` API**
+### 1. **New `HttpClient` API**
 
 Java 11 introduced a new `HttpClient` API to replace the old `HttpURLConnection`, providing a more modern and flexible way to handle HTTP requests.
 
@@ -36,7 +29,7 @@ System.out.println(response.body());
 
 ```
 
-### 4. **String Methods**
+### 2. **String Methods**
 
 Java 11 added several new methods to the `String` class, including `isBlank()`, `lines()`, `strip()`, and `repeat(int)`.
 
@@ -54,7 +47,7 @@ System.out.println("abc".repeat(3)); // "abcabcabc"
 
 ```
 
-### 5. **Local-Variable Syntax for Lambda Parameters**
+### 3. **Local-Variable Syntax for Lambda Parameters**
 
 Java 11 allows the use of `var` for lambda parameters, improving type inference.
 
@@ -68,7 +61,7 @@ list.forEach((var item) -> System.out.println(item));
 
 ```
 
-### 6. **New `Files` Methods**
+### 4. **New `Files` Methods**
 
 New utility methods were added to the `Files` class for easier file handling.
 
@@ -86,7 +79,7 @@ System.out.println(content);
 
 ```
 
-### 7. **Optional Enhancements**
+### 5. **Optional Enhancements**
 
 Java 11 introduced the `Optional` class methods `isEmpty()`.
 
@@ -100,7 +93,7 @@ System.out.println(optionalValue.isEmpty()); // true
 
 ```
 
-### 8. **Pattern Matching for `instanceof` (Preview Feature)**
+### 6. **Pattern Matching for `instanceof` (Preview Feature)**
 
 Java 11 included a preview feature for pattern matching with `instanceof`, which simplifies type checks and casts.
 
@@ -118,23 +111,9 @@ if (obj instanceof String s) {
 
 ```
 
-### 9. **Dynamic Class-File Constants**
-
-Java 11 introduced a new constant pool that allows dynamic constants to be used in class files, improving efficiency.
-
-### 10. **Removal of Applet API**
-
-The Applet API was removed as part of the modernization of Java, reflecting the decline in use of applets on the web.
-
-### 11. **Enhanced `Garbage Collection`**
+### 7. **Enhanced `Garbage Collection`**
 
 Java 11 included enhancements to garbage collection, particularly to the G1 collector, for better performance.
-
-### 12. **New Standard Libraries and API Updates**
-
-- New classes and methods added to the `java.util` and `java.nio` packages for various enhancements.
-
-- The `java.security` package saw improvements in security and cryptographic standards.
 
 ### Summary
 

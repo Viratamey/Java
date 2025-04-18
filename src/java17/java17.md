@@ -61,15 +61,6 @@ System.out.println(text.strip()); // Output: "Hello, World!"
 System.out.println(text.isBlank()); // Output: false
 ```
 
-### 6. **JEP 411: Deprecate the Security Manager for Removal**
-Indicates a shift in security practices; no code example since it's a deprecation notice.
-
-### 7. **JEP 382: New macOS Rendering Pipeline**
-Improves graphics rendering for Java applications on macOS.
-
-### 8. **JEP 390: Warnings for Value-Based Classes**
-Provides warnings for misuse of classes like `Optional`.
-
 **Example:**
 ```java
 Optional<String> optional = Optional.of("Hello");
@@ -78,10 +69,7 @@ if (optional == null) { // Warning: value-based class comparison
 }
 ```
 
-### 9. **JEP 387: Elastic Metaspace**
-Optimizes memory usage for class metadata.
-
-### 10. **JEP 384: Context-Specific Deserialization Filters**
+### 6. **JEP 384: Context-Specific Deserialization Filters**
 Enhances security for object deserialization.
 
 **Example:**
@@ -91,13 +79,7 @@ ObjectInputStream in = new ObjectInputStream(new FileInputStream("data.obj"));
 in.setObjectInputFilter(filter);
 ```
 
-### 11. **Foreign Function & Memory API (Incubator)**
-Allows calling native code and managing native memory.
-
-**Example:**
-This feature is complex and requires specific setup, but it enables interaction with native libraries.
-
-### 12. **New Methods in `Files` Class**
+### 7. **New Methods in `Files` Class**
 Simplifies file I/O operations.
 
 **Example:**
@@ -108,10 +90,7 @@ String content = Files.readString(path);
 System.out.println(content); // Output: Hello, World!
 ```
 
-### 13. **JEP 391: macOS/AArch64 Port**
-Adds support for Apple Silicon, no specific code example needed.
-
-### 14. **JEP 406: Pattern Matching for `switch` (Preview)**
+### 8. **JEP 406: Pattern Matching for `switch` (Preview)**
 Introduces pattern matching in switch statements.
 
 **Example (Preview):**
@@ -125,7 +104,7 @@ void printShape(Shape shape) {
 }
 ```
 
-### 15. **JEP 355: Text Blocks (Standardized)**
+### 9. **JEP 355: Text Blocks (Standardized)**
 
 - **Description**: Introduces text blocks for multi-line strings.
 
@@ -148,9 +127,6 @@ String json = """
 ```
 
 - **Impact**: Improves readability of strings that span multiple lines.
-
-### 16. **Improved Java Flight Recorder**
-Enhancements for profiling Java applications.
 
 ### Summary
 These examples highlight some of the most important changes in Java 17 compared to Java 11. Understanding these features will be beneficial for interviews, showcasing your knowledge of modern Java programming.
