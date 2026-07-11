@@ -32,3 +32,154 @@ The following table describes the difference between metaspace and PermGen: 
 | Contiguous Java Heap Memory. | Native Memory(provided by underlying OS). |
 | Inefficient garbage collection. | Efficient garbage collection.
 
+# ☕ JVM Heap Memory & JVM Options
+
+```
+                           JVM MEMORY
+┌───────────────────────────────────────────────────────────────────────┐
+│                                                                       │
+│                            HEAP MEMORY                                │
+│                                                                       │
+│  Initial Heap Size  →  -Xms                                           │
+│  Maximum Heap Size  →  -Xmx                                           │
+│                                                                       │
+│  ┌──────────────────────────────────────────────────────────────┐      │
+│  │                    Heap (-Xms / -Xmx)                        │      │
+│  │                                                              │      │
+│  │  🟩 Young Generation (-Xmn)                                  │      │
+│  │  ┌──────────────────────────────────────────────────────┐    │      │
+│  │  │                                                      │    │      │
+│  │  │ 🟨 Eden Space                                         │    │      │
+│  │  │        Controlled by                                 │    │      │
+│  │  │        -XX:SurvivorRatio                             │    │      │
+│  │  ├───────────────┬──────────────────────────────────────┤    │      │
+│  │  │ 🟦 Survivor 0 │ 🟦 Survivor 1                        │    │      │
+│  │  └───────────────┴──────────────────────────────────────┘    │      │
+│  │                                                              │      │
+│  ├──────────────────────────────────────────────────────────────┤      │
+│  │                                                              │      │
+│  │ 🟥 Old Generation                                            │      │
+│  │                                                              │      │
+│  │      Size controlled by                                      │      │
+│  │      -XX:NewRatio                                            │      │
+│  │                                                              │      │
+│  └──────────────────────────────────────────────────────────────┘      │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+
+
+                     NON-HEAP MEMORY
+
+        Java 7 and below                     Java 8+
+    ┌─────────────────────┐          ┌──────────────────────┐
+    │      PermGen        │          │      Metaspace       │
+    │                     │          │                      │
+    │ -XX:PermGen         │          │ -XX:MetaspaceSize    │
+    │ -XX:MaxPermGen      │          │ -XX:MaxMetaspaceSize │
+    └─────────────────────┘          └──────────────────────┘
+```
+
+---
+
+# 🎯 What each JVM Option Controls
+
+| JVM Option | Controls | Easy Way to Remember |
+|------------|-----------|----------------------|
+| 🟢 `-Xms` | Initial Heap Size | **s = Start** |
+| 🔴 `-Xmx` | Maximum Heap Size | **x = maXimum** |
+| 🟢 `-Xmn` | Young Generation Size | **n = New** |
+| 🟨 `-XX:SurvivorRatio` | Eden : Survivor Ratio | **Inside Young Generation** |
+| 🟥 `-XX:NewRatio` | Old : Young Ratio | **Old vs New** |
+| 🟪 `-XX:PermGen` | Initial PermGen (Java 7) | Initial Permanent |
+| 🟪 `-XX:MaxPermGen` | Maximum PermGen (Java 7) | Max Permanent |
+
+---
+
+# 🧠 Example
+
+```
+Heap = 12 GB
+
+-Xms4g
+-Xmx12g
+-Xmn4g
+-XX:NewRatio=2
+-XX:SurvivorRatio=8
+```
+
+### Heap Layout
+
+```
+                Heap (12 GB)
+┌───────────────────────────────────────────────┐
+│                                               │
+│ 🟥 Old Generation (8 GB)                      │
+│                                               │
+├───────────────────────────────────────────────┤
+│ 🟩 Young Generation (4 GB)                    │
+│                                               │
+│  🟨 Eden      = 3.2 GB (80%)                  │
+│  🟦 Survivor0 = 0.4 GB (10%)                  │
+│  🟦 Survivor1 = 0.4 GB (10%)                  │
+│                                               │
+└───────────────────────────────────────────────┘
+```
+
+---
+
+# 📌 Mnemonics
+
+```
+-Xms
+   ↓
+Start Heap
+
+-Xmx
+   ↓
+Maximum Heap
+
+-Xmn
+   ↓
+New (Young) Generation
+
+SurvivorRatio
+   ↓
+Eden : Survivor : Survivor
+
+NewRatio
+   ↓
+Old : Young
+
+PermGen
+   ↓
+Java 7 Metadata
+
+Metaspace
+   ↓
+Java 8+ Metadata
+```
+
+---
+
+# 🚀 30-Second Interview Cheat Sheet
+
+```
+Heap
+├── -Xms  → Initial Heap
+├── -Xmx  → Maximum Heap
+│
+├── Young Generation (-Xmn)
+│      ├── Eden
+│      ├── Survivor0
+│      └── Survivor1
+│             ↑
+│      SurvivorRatio
+│
+└── Old Generation
+        ↑
+     NewRatio
+
+Non-Heap
+├── Java 7  → PermGen
+└── Java 8+ → Metaspace
+```

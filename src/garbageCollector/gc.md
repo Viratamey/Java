@@ -101,3 +101,564 @@ Why Does a Programmer need to Understand Garbage Collection?
 For many simple applications, Java garbage collection is not something that a programmer needs to consciously consider. However, for programmers who want to advance their Java skills, it is important to understand how Java garbage collection works and the ways in which it can be tuned.
 
 Besides the basic mechanisms of garbage collection, one of the most important points to understand about garbage collection in Java is that it is non-deterministic, and there is no way to predict when garbage collection will occur at run time. It is possible to include a hint in the code to run the garbage collector with the System.gc()  or Runtime.getRuntime().gc()  methods, but they provide no guarantee that the garbage collector will actually run.
+
+
+# Java Garbage Collection (GC) Object Lifecycle
+
+## JVM Heap Structure
+
+```
+                        HEAP
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│                 Young Generation (-Xmn)                      │
+│                                                              │
+│  ┌────────────┬─────────────┬─────────────┐                  │
+│  │   Eden     │ Survivor 0  │ Survivor 1  │                  │
+│  │            │    (S0)      │    (S1)      │                  │
+│  └────────────┴─────────────┴─────────────┘                  │
+│                                                              │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│                Old Generation (Tenured)                      │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+# Object Lifecycle
+
+```
+New Object
+    │
+    ▼
+Eden
+    │
+Minor GC
+    ▼
+Survivor 0
+    │
+Minor GC
+    ▼
+Survivor 1
+    │
+Minor GC
+    ▼
+Survivor 0
+    │
+Minor GC
+    ▼
+Survivor 1
+    │
+Age reaches threshold
+    ▼
+Old (Tenured) Generation
+```
+
+---
+
+# Step 1 - Object Creation
+
+Every newly created object is allocated in **Eden**.
+
+```java
+Employee e1 = new Employee();
+Employee e2 = new Employee();
+Employee e3 = new Employee();
+```
+
+```
+Eden
+
+┌──────────────────────┐
+│ e1                   │
+│ e2                   │
+│ e3                   │
+└──────────────────────┘
+
+S0 Empty
+S1 Empty
+Old Empty
+```
+
+---
+
+# Step 2 - Eden Becomes Full
+
+More objects are created.
+
+```
+Eden
+
+A
+B
+C
+D
+E
+F
+
+(Eden Full)
+```
+
+A **Minor GC** is triggered.
+
+---
+
+# Step 3 - Minor GC
+
+GC checks which objects are still reachable.
+
+Suppose
+
+```
+Alive
+
+B
+C
+E
+
+Dead
+
+A
+D
+F
+```
+
+Dead objects are discarded.
+
+Only live objects survive.
+
+---
+
+# Step 4 - Surviving Objects Move to Survivor Space
+
+The surviving objects are copied into **Survivor 0**.
+
+```
+Eden
+
+Empty
+
+S0
+
+B(age=1)
+C(age=1)
+E(age=1)
+
+S1
+
+Empty
+```
+
+Every surviving object gets
+
+```
+Age = 1
+```
+
+---
+
+# Step 5 - New Objects Are Created
+
+Application continues.
+
+```
+Eden
+
+G
+H
+I
+J
+```
+
+---
+
+# Step 6 - Second Minor GC
+
+Suppose
+
+From S0
+
+```
+Alive
+
+B
+E
+
+Dead
+
+C
+```
+
+From Eden
+
+```
+Alive
+
+G
+H
+```
+
+Instead of modifying S0,
+
+JVM copies all surviving objects into **S1**.
+
+```
+S1
+
+B(age=2)
+E(age=2)
+G(age=1)
+H(age=1)
+```
+
+Then
+
+```
+S0
+
+Empty
+```
+
+---
+
+# Step 7 - Third Minor GC
+
+Now S1 becomes the source.
+
+Suppose
+
+```
+Alive
+
+B
+G
+```
+
+New Eden objects
+
+```
+K
+L
+```
+
+JVM copies them into S0.
+
+```
+S0
+
+B(age=3)
+G(age=2)
+K(age=1)
+L(age=1)
+```
+
+S1 becomes empty.
+
+---
+
+# Why Two Survivor Spaces?
+
+## Without Two Survivor Spaces
+
+Suppose Survivor contains
+
+```
+A
+B
+C
+```
+
+After GC
+
+```
+Alive
+
+A
+C
+
+Dead
+
+B
+
+New Objects
+
+D
+E
+```
+
+Survivor should become
+
+```
+A(age2)
+C(age2)
+D(age1)
+E(age1)
+```
+
+This requires
+
+- deleting B
+- compacting memory
+- shifting objects
+- inserting new objects
+
+Very expensive.
+
+---
+
+## With Two Survivor Spaces
+
+Current
+
+```
+S0
+
+A
+B
+C
+```
+
+Destination
+
+```
+S1
+
+Empty
+```
+
+GC copies only live objects.
+
+```
+S1
+
+A(age2)
+C(age2)
+D(age1)
+E(age1)
+```
+
+Now
+
+```
+S0
+
+Discard Entirely
+```
+
+No deletion.
+
+No shifting.
+
+No compaction.
+
+Simply discard the old Survivor space.
+
+---
+
+# Survivor Space Swap
+
+```
+Minor GC #1
+
+Eden
+ ↓
+S0
+
+------------------------
+
+Minor GC #2
+
+S0 + Eden
+ ↓
+S1
+
+------------------------
+
+Minor GC #3
+
+S1 + Eden
+ ↓
+S0
+
+------------------------
+
+Minor GC #4
+
+S0 + Eden
+ ↓
+S1
+```
+
+Only one Survivor space is active at a time.
+
+The other one is the destination.
+
+---
+
+# Object Aging
+
+Every successful Minor GC increases object age.
+
+```
+Minor GC 1
+
+A(age=1)
+
+↓
+
+Minor GC 2
+
+A(age=2)
+
+↓
+
+Minor GC 3
+
+A(age=3)
+
+↓
+
+...
+
+↓
+
+Age = 15 (default threshold)
+
+↓
+
+Promote to Old Generation
+```
+
+---
+
+# Promotion (Tenuring)
+
+When an object's age reaches the JVM threshold
+(default is usually **15**),
+
+it is promoted to the **Old Generation**.
+
+```
+Old Generation
+
+A
+E
+```
+
+This process is called
+
+- Promotion
+- Tenuring
+
+---
+
+# Complete GC Flow
+
+```
+                    New Object
+                         │
+                         ▼
+                ┌─────────────────┐
+                │      Eden       │
+                └─────────────────┘
+                         │
+                 Minor Garbage Collection
+                         │
+          ┌──────────────┴──────────────┐
+          │                             │
+          ▼                             ▼
+     Object Dead                  Object Alive
+          │                             │
+          ▼                             ▼
+      Collected                 Survivor Space
+                                 (S0 or S1)
+                                       │
+                               Minor GC Again
+                                       │
+                                 Age Increases
+                                       │
+                            Age >= Threshold?
+                                       │
+                    No ─────────────────┘
+                                       │
+                                      Yes
+                                       ▼
+                         Old (Tenured) Generation
+```
+
+---
+
+# GC Terminology
+
+| Term | Meaning |
+|------|----------|
+| Eden | Where all new objects are created |
+| Minor GC | Garbage collection of Young Generation |
+| Survivor Space | Temporary storage for surviving objects |
+| Age | Number of Minor GCs survived |
+| Promotion | Moving object to Old Generation |
+| Tenuring | Another name for Promotion |
+| Old Generation | Stores long-lived objects |
+| Major GC / Full GC | Cleans Old Generation |
+
+---
+
+# Memory Movement Summary
+
+```
+New Object
+      │
+      ▼
+   Eden
+      │
+Minor GC
+      │
+      ▼
+ Survivor 0
+      │
+Minor GC
+      │
+      ▼
+ Survivor 1
+      │
+Minor GC
+      │
+      ▼
+ Survivor 0
+      │
+Minor GC
+      │
+      ▼
+ Survivor 1
+      │
+Age >= Threshold
+      │
+      ▼
+Old Generation
+```
+
+---
+
+# Why Two Survivor Spaces?
+
+✅ Copy only live objects
+
+✅ Avoid deleting dead objects individually
+
+✅ No memory compaction needed
+
+✅ Faster Minor Garbage Collection
+
+One Survivor space is always the **Source**.
+
+The other Survivor space is always the **Destination**.
+
+After every Minor GC they swap roles.
+
+---
+
+# Interview One-Liner
+
+> Every new object is created in **Eden**. When Eden fills up, a **Minor GC** occurs. Live objects are copied to one Survivor space while dead objects are discarded. During subsequent Minor GCs, live objects are copied back and forth between the two Survivor spaces, increasing their age each time. Once an object survives enough Minor GCs (typically age 15), it is **promoted (tenured)** to the **Old Generation**. Two Survivor spaces are used so that the JVM can copy only live objects into an empty space instead of deleting dead objects and compacting memory, making Minor GC efficient.
