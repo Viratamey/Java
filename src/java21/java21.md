@@ -18,6 +18,85 @@ String greeting = T("Hello, ${name}! You are ${age} years old.");
 
 ```
 
+
+### ✅ Full Code Example
+
+```java
+
+
+import java.util.Map;
+
+import java.util.template.Template;
+
+import static java.util.FormatProcessor.FMT;
+
+import static java.util.TemplateProcessor.STR;
+
+import static java.util.template.TemplateRuntime.T;
+
+public class TemplateDemo {
+
+public static void main(String[] args) {
+
+// Data
+
+String name = "Alice";
+
+double score = 88.235;
+
+// 1️⃣ Simple Greeting using STR
+
+String greeting = STR."Hello, \{name}!";
+
+System.out.println(greeting);
+
+// Output: Hello, Alice!
+
+// 2️⃣ Formatted Score using FMT
+
+String scoreReport = FMT."Score: %.2f\{score}";
+
+System.out.println(scoreReport);
+
+// Output: Score: 88.24
+
+// 3️⃣ Reusable Message Template using T(...) + FMT
+
+Template messageTemplate = T("Student: ${name}, Final Score: ${score}");
+
+// Process with FMT and different data
+
+String message1 = FMT.process(messageTemplate, Map.of("name", "Alice", "score", 88.235));
+
+String message2 = FMT.process(messageTemplate, Map.of("name", "Bob", "score", 91.778));
+
+System.out.println(message1);
+
+System.out.println(message2);
+
+// Output:
+
+// Student: Alice, Final Score: 88.24
+
+// Student: Bob, Final Score: 91.78
+
+}
+
+```
+
+}
+* * * * *
+
+🔍 What's Happening Here?
+-------------------------
+
+| Part | Feature | Description |
+| --- | --- | --- |
+| 1️⃣ | `STR` | Simple, clean way to embed variables directly |
+| 2️⃣ | `FMT` | Adds formatting (e.g., rounding to 2 decimals) |
+| 3️⃣ | `T(...)` | Creates a reusable template with `${}` placeholders |
+|  | `FMT.process` | Applies values to the template and formats them |
+
 - **Impact**: Simplifies string interpolation, improving readability.
 
 
