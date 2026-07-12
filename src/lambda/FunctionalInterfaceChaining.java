@@ -7,7 +7,11 @@ import java.util.function.Supplier;
 public class FunctionalInterfaceChaining {
     public static void main(String[] a) {
 
-//        Consumer
+//      Chaining methods like andThen() work by taking the output of one function and feeding it as the input to the next:
+//      But Supplier has no input at all — it's a pure producer: () -> T. There's nothing to "chain" into it,
+//      and chaining something after it doesn't need a special method because it's just... calling a function on the result:
+
+//      Consumer
         Consumer<String> c1 = (String s) -> System.out.println(s);
         Consumer<String> c2 = (String s) -> System.out.println(s.length());
 
@@ -21,7 +25,7 @@ public class FunctionalInterfaceChaining {
         c4.accept("Hello");
 
 
-//        Predicate
+//      Predicate
         Predicate<String> isNotNull = (s) -> !(s == null);
         Predicate<String> isNotEmpty = (s) -> !s.isEmpty();
         Predicate<String> notnullempty = isNotNull.and(isNotEmpty);

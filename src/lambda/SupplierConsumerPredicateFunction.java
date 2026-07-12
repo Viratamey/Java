@@ -16,9 +16,25 @@ public class SupplierConsumerPredicateFunction {
         String str2 = supplier2.get();
         System.out.println(str2);
 
+        Supplier<Integer> supplier3 = new Supplier<Integer>() {
+            @Override
+            public Integer get() {
+                return 23;
+            }
+        };
+        System.out.println(supplier3.get());
+
         Consumer<String> consumer = (s) -> System.out.println(s);
         consumer.accept("Hello Amey");
         consumer.accept(null);
+
+        Consumer<Integer> consumer2 = new Consumer<Integer>() {
+            @Override
+            public void accept(Integer integer) {
+                System.out.println(integer);
+            }
+        };
+        consumer2.accept(88);
 
         Predicate<String> isEmptyString = s -> s.isEmpty();
         boolean isStrEmpty = isEmptyString.test("Hello");
