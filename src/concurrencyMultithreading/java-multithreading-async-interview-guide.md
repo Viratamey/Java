@@ -120,8 +120,8 @@ Whenever Java executes:
 
 ```java
 synchronized(obj) {
-    // critical section
-}
+        // critical section
+        }
 ```
 
 it performs:
@@ -246,8 +246,8 @@ instead of
 
 ```java
 synchronized (this) {
-    count++;
-}
+count++;
+        }
 ```
 
 **Reason:** `this` is visible to external code.
@@ -256,7 +256,7 @@ Someone else could accidentally write:
 
 ```java
 synchronized(counter) {
-    Thread.sleep(10000);
+        Thread.sleep(10000);
 }
 ```
 
@@ -312,6 +312,166 @@ class Singleton {
 ```
 **Interview favorite:** explain *why* `volatile` is needed here — without it, the JIT/JVM could reorder the object construction and reference assignment, so another thread might see a non-null but not-fully-initialized instance.
 
+
+
+### Deep Dive: Why `volatile` is Required in Double-Checked Locking (Interview Notes)
+
+The classic singleton implementation uses **Double-Checked Locking (DCL)**:
+
+```java
+class Singleton {
+    private static volatile Singleton instance;
+
+    public static Singleton getInstance() {
+
+        if (instance == null) {                 // First check (outside synchronization)
+
+            synchronized (Singleton.class) {
+
+                if (instance == null) {         // Second check (inside synchronization)
+                    instance = new Singleton();
+                }
+            }
+        }
+        return instance;
+    }
+}
+```
+
+#### Why not synchronize the whole method?
+
+```java
+public static synchronized Singleton getInstance() {
+    if (instance == null) {
+        instance = new Singleton();
+    }
+    return instance;
+}
+```
+
+This is thread-safe, but **every call acquires the lock**, even after the singleton has already been created.
+
+Double-Checked Locking avoids this overhead by synchronizing only during the first initialization.
+
+---
+
+#### Why is `new Singleton()` not atomic?
+
+The statement
+
+```java
+instance = new Singleton();
+```
+
+is conceptually three operations:
+
+```
+1. Allocate memory
+2. Initialize the object (run constructor)
+3. Assign the reference to instance
+```
+
+For optimization, the JVM/CPU may reorder steps 2 and 3:
+
+```
+1. Allocate memory
+2. Assign reference to instance
+3. Run constructor
+```
+
+Now `instance` becomes non-null **before the constructor finishes**.
+
+---
+
+#### If object creation is synchronized, how can another thread see a partial object?
+
+This is the most common interview question.
+
+The key observation is that **the first null check is outside the synchronized block.**
+
+Timeline:
+
+```
+Thread A
+---------
+instance == null
+↓
+Enters synchronized block
+↓
+Allocates memory
+↓
+instance now points to allocated memory
+↓
+Constructor still running...
+
+Thread B
+---------
+Calls getInstance()
+↓
+if (instance == null)
+↓
+FALSE
+↓
+Returns instance immediately
+```
+
+Notice that **Thread B never enters the synchronized block** because it already sees a non-null reference.
+
+It therefore never waits for Thread A to finish initialization.
+
+As a result, Thread B can observe a **partially initialized object**.
+
+---
+
+#### How does `volatile` fix this?
+
+`volatile` provides two guarantees:
+
+1. **Visibility** – writes made by one thread become immediately visible to other threads.
+2. **Prevents instruction reordering** for volatile reads/writes.
+
+With `volatile`, the JVM must execute:
+
+```
+Allocate memory
+↓
+Run constructor
+↓
+Publish reference (volatile write)
+```
+
+The reference cannot become visible until the object is fully initialized.
+
+---
+
+#### Why doesn't `synchronized` alone solve the problem?
+
+`synchronized` protects only the code inside the synchronized block.
+
+After the singleton has been created, future threads execute:
+
+```java
+if (instance != null) {
+    return instance;
+}
+```
+
+They never acquire the lock.
+
+Without `volatile`, this unsynchronized read may observe a reference published before construction completed because of instruction reordering.
+
+Therefore:
+
+- `synchronized` ensures **only one thread creates the object**.
+- `volatile` ensures **every thread sees a fully initialized object**.
+
+---
+
+#### Interview One-Liner
+
+> Double-Checked Locking requires `volatile` because the first null check occurs outside the synchronized block. Without `volatile`, the JVM may publish the object reference before the constructor finishes, allowing another thread to skip synchronization and observe a partially initialized object.
+
+
 ### `synchronized` vs `volatile` vs `Lock`
 | | synchronized | volatile | ReentrantLock |
 |---|---|---|---|
@@ -349,9 +509,9 @@ StampedLock sl = new StampedLock();
 long stamp = sl.tryOptimisticRead();
 int value = data; // read without locking
 if (!sl.validate(stamp)) {
-stamp = sl.readLock(); // fall back to real lock
+    stamp = sl.readLock(); // fall back to real lock
     try { value = data; } finally { sl.unlockRead(stamp); }
-        }
+}
 ```
 
 ---
@@ -430,7 +590,7 @@ Never manually manage raw `Thread` objects in production — use `ExecutorServic
 ```java
 ExecutorService executor = Executors.newFixedThreadPool(10);
 executor.submit(() -> processPayment(order));
-        executor.shutdown();
+executor.shutdown();
 executor.awaitTermination(30, TimeUnit.SECONDS);
 ```
 
@@ -446,11 +606,11 @@ executor.awaitTermination(30, TimeUnit.SECONDS);
 
 ```java
 ThreadPoolExecutor executor = new ThreadPoolExecutor(
-        10,                              // core pool size
-        20,                              // max pool size
-        60L, TimeUnit.SECONDS,           // idle thread keep-alive
-        new ArrayBlockingQueue<>(500),   // BOUNDED queue
-        new ThreadPoolExecutor.CallerRunsPolicy() // backpressure: caller thread runs task if saturated
+    10,                              // core pool size
+    20,                              // max pool size
+    60L, TimeUnit.SECONDS,           // idle thread keep-alive
+    new ArrayBlockingQueue<>(500),   // BOUNDED queue
+    new ThreadPoolExecutor.CallerRunsPolicy() // backpressure: caller thread runs task if saturated
 );
 ```
 
@@ -478,11 +638,11 @@ Limitations: no callback/composition support, `get()` blocks, no easy way to com
 ### `CompletableFuture` (Java 8+) — the modern async toolkit
 ```java
 CompletableFuture<Order> future = CompletableFuture
-        .supplyAsync(() -> fetchOrder(orderId), executor)   // async computation, runs on given executor
-        .thenApply(order -> enrichOrder(order))              // transform result (sync, same thread)
-        .thenApplyAsync(order -> validate(order), executor)   // transform result (async, on executor)
-        .exceptionally(ex -> fallbackOrder())                 // handle exception, provide default
-        .thenAccept(order -> log.info("processed {}", order)); // consume, no return value
+    .supplyAsync(() -> fetchOrder(orderId), executor)   // async computation, runs on given executor
+    .thenApply(order -> enrichOrder(order))              // transform result (sync, same thread)
+    .thenApplyAsync(order -> validate(order), executor)   // transform result (async, on executor)
+    .exceptionally(ex -> fallbackOrder())                 // handle exception, provide default
+    .thenAccept(order -> log.info("processed {}", order)); // consume, no return value
 ```
 
 **Key methods interviewers expect you to know cold:**
@@ -508,7 +668,7 @@ CompletableFuture<Integer> a = f.thenApply(x -> x + 1);
 // thenCompose: use when the function itself returns a CompletableFuture
 // (avoids CompletableFuture<CompletableFuture<T>> nesting — like flatMap vs map)
 CompletableFuture<Order> b = fetchUserAsync(id)
-        .thenCompose(user -> fetchOrderAsync(user.getId()));
+    .thenCompose(user -> fetchOrderAsync(user.getId()));
 ```
 
 **Combining independent async calls (very common in microservice fan-out):**
@@ -517,7 +677,7 @@ CompletableFuture<User> userFuture = CompletableFuture.supplyAsync(() -> fetchUs
 CompletableFuture<List<Order>> ordersFuture = CompletableFuture.supplyAsync(() -> fetchOrders(id));
 
 CompletableFuture<UserProfile> combined = userFuture.thenCombine(ordersFuture,
-        (user, orders) -> new UserProfile(user, orders));
+    (user, orders) -> new UserProfile(user, orders));
 
 UserProfile profile = combined.get(5, TimeUnit.SECONDS); // always use a timeout in prod
 ```
@@ -528,19 +688,19 @@ UserProfile profile = combined.get(5, TimeUnit.SECONDS); // always use a timeout
 @Bean
 public Executor paymentExecutor() {
     return new ThreadPoolExecutor(10, 20, 60, TimeUnit.SECONDS,
-            new ArrayBlockingQueue<>(200), new ThreadPoolExecutor.CallerRunsPolicy());
+        new ArrayBlockingQueue<>(200), new ThreadPoolExecutor.CallerRunsPolicy());
 }
 ```
 
 ### Exception handling in async chains
 ```java
 CompletableFuture.supplyAsync(() -> riskyCall())
-        .handle((result, ex) -> {
+    .handle((result, ex) -> {
         if (ex != null) {
-        log.error("failed", ex);
+            log.error("failed", ex);
             return fallback();
         }
-                return result;
+        return result;
     });
 ```
 Unhandled exceptions in a `CompletableFuture` chain are swallowed unless you call `.get()`/`.join()` (which rethrow wrapped in `ExecutionException`/`CompletionException`) or use `.exceptionally()`/`.handle()`.
@@ -599,8 +759,8 @@ map.merge(key, 1, Integer::sum); // atomic increment-or-insert
 ```java
 // Deadlock-prone
 synchronized (lockA) {
-synchronized (lockB) { /* ... */ }
-        }
+    synchronized (lockB) { /* ... */ }
+}
 // Thread 2 does the reverse order → deadlock risk
 ```
 **Fix: consistent lock ordering** — always acquire locks in the same global order (e.g., by object hash code or an assigned ID) across all code paths.
@@ -619,7 +779,7 @@ Gives each thread its own independent copy of a variable — no synchronization 
 
 ```java
 private static final ThreadLocal<SimpleDateFormat> formatter =
-        ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd"));
+    ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd"));
 ```
 
 Common real use: storing request-scoped data (e.g., a correlation/trace ID, or the authenticated user) across a call chain without passing it through every method signature — MDC in logging frameworks (Logback/Log4j2) uses this internally.
@@ -628,10 +788,10 @@ Common real use: storing request-scoped data (e.g., a correlation/trace ID, or t
 
 ```java
 try {
-        contextHolder.set(requestContext);
-// process request
+    contextHolder.set(requestContext);
+    // process request
 } finally {
-        contextHolder.remove(); // mandatory in pooled-thread environments
+    contextHolder.remove(); // mandatory in pooled-thread environments
 }
 ```
 
