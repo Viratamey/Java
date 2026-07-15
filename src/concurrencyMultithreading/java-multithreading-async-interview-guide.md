@@ -246,8 +246,8 @@ instead of
 
 ```java
 synchronized (this) {
-count++;
-        }
+    count++;
+}
 ```
 
 **Reason:** `this` is visible to external code.
@@ -256,7 +256,7 @@ Someone else could accidentally write:
 
 ```java
 synchronized(counter) {
-        Thread.sleep(10000);
+    Thread.sleep(10000);
 }
 ```
 
@@ -470,6 +470,205 @@ Therefore:
 #### Interview One-Liner
 
 > Double-Checked Locking requires `volatile` because the first null check occurs outside the synchronized block. Without `volatile`, the JVM may publish the object reference before the constructor finishes, allowing another thread to skip synchronization and observe a partially initialized object.
+
+
+
+
+### Deep Dive: Other Uses of `volatile` (Revision Notes)
+
+Many developers associate `volatile` only with the Double-Checked Locking singleton pattern. While that is a common interview topic, **its primary purpose is to guarantee visibility between threads.**
+
+#### 1. Visibility Guarantee (Primary Purpose)
+
+Without `volatile`, each thread may cache a variable locally instead of reading it from main memory.
+
+Example:
+
+```java
+class Server {
+
+    private boolean running = true;
+
+    public void start() {
+        while (running) {
+            processRequest();
+        }
+    }
+
+    public void stop() {
+        running = false;
+    }
+}
+```
+
+Thread A may cache `running = true` and continue looping forever, even after Thread B executes:
+
+```java
+running = false;
+```
+
+Making the variable volatile fixes the problem:
+
+```java
+private volatile boolean running = true;
+```
+
+Now every write is immediately visible to other threads.
+
+---
+
+#### CPU Cache Illustration
+
+Without `volatile`
+
+```
+           Main Memory
+                |
+      ---------------------
+      |                   |
+ CPU Cache A         CPU Cache B
+      |                   |
+ Thread A            Thread B
+
+Thread A keeps reading cached value.
+```
+
+With `volatile`
+
+```
+Every write
+        ↓
+Main Memory
+
+Every read
+        ↓
+Latest value from main memory
+```
+
+This guarantees **visibility**.
+
+---
+
+#### 2. Happens-Before Guarantee
+
+A write to a volatile variable establishes a **happens-before** relationship with every subsequent read of that variable.
+
+Example:
+
+```java
+int data = 0;
+volatile boolean ready = false;
+
+// Thread A
+data = 100;
+ready = true;
+
+// Thread B
+if (ready) {
+    System.out.println(data);
+}
+```
+
+If Thread B sees:
+
+```java
+ready == true
+```
+
+it is guaranteed to also see:
+
+```java
+data == 100
+```
+
+The write to `ready` makes all previous writes visible.
+
+---
+
+#### 3. Prevents Instruction Reordering
+
+`volatile` also prevents the JVM/CPU from reordering instructions around volatile reads and writes.
+
+This is why Double-Checked Locking works correctly when the singleton instance is declared volatile.
+
+---
+
+#### What `volatile` Does NOT Do
+
+`volatile` does **not** make compound operations atomic.
+
+Example:
+
+```java
+volatile int counter = 0;
+
+counter++;
+```
+
+Internally:
+
+```
+Read
+↓
+Increment
+↓
+Write
+```
+
+Two threads can still interleave these operations, causing lost updates.
+
+Use `AtomicInteger`, `synchronized`, or `ReentrantLock` for atomic updates.
+
+---
+
+#### When Should You Use `volatile`?
+
+Use `volatile` when:
+
+- A variable is written by one thread and read by many others.
+- You need immediate visibility of updates.
+- Operations are simple reads/writes (not read-modify-write).
+
+Common examples:
+
+```java
+volatile boolean running;
+volatile boolean shutdown;
+volatile boolean cancelled;
+volatile int status;
+```
+
+---
+
+#### When Should You NOT Use `volatile`?
+
+Do **not** rely on `volatile` for compound operations like:
+
+```java
+counter++;
+balance += amount;
+list.add(item);
+map.put(key, value);
+```
+
+These require synchronization or atomic classes.
+
+---
+
+#### Quick Revision Summary
+
+| Feature | `volatile` |
+|---------|------------|
+| Visibility | ✅ Yes |
+| Happens-before guarantee | ✅ Yes |
+| Prevents instruction reordering | ✅ Yes |
+| Atomicity | ❌ No |
+| Mutual exclusion | ❌ No |
+| Locking | ❌ No |
+
+**Interview One-Liner**
+
+> The primary purpose of `volatile` is visibility. It ensures that writes made by one thread become immediately visible to other threads and establishes a happens-before relationship. It also prevents instruction reordering around the volatile variable, but it does not provide atomicity or locking.
 
 
 ### `synchronized` vs `volatile` vs `Lock`
