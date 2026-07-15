@@ -64,6 +64,232 @@ public class Counter {
 **Why prefer a private final lock object over `synchronized` on `this`?**
 Locking on `this` exposes your lock to external code — anyone holding a reference to your object can synchronize on it too, causing unexpected contention or deadlock. A private lock object encapsulates locking as an implementation detail.
 
+
+
+### Deep Dive: How `synchronized` Works (Revision Notes)
+
+#### Why Synchronization?
+When multiple threads access shared mutable data simultaneously, **race conditions** can occur.
+
+Example:
+```java
+count++;
+```
+
+Although it looks like one statement, it is actually three operations:
+
+```
+1. Read count
+2. Increment value
+3. Write updated value
+```
+
+If two threads interleave these steps, one update can overwrite the other (**lost update**).
+
+---
+
+#### What does `synchronized` do?
+
+`synchronized` guarantees that **only one thread at a time** can execute the protected critical section for a given lock.
+
+```java
+public synchronized void increment() {
+    count++;
+}
+```
+
+If one thread is inside `increment()`, every other thread attempting to acquire the same lock must wait.
+
+---
+
+#### Intrinsic Lock (Monitor)
+
+Every Java object automatically contains an **intrinsic lock (monitor)**.
+
+```
+Counter Object
+--------------
+count = 0
+Monitor (Lock)
+--------------
+```
+
+The monitor is invisible to programmers but is automatically used by the `synchronized` keyword.
+
+Whenever Java executes:
+
+```java
+synchronized(obj) {
+    // critical section
+}
+```
+
+it performs:
+
+```
+Acquire obj's monitor
+↓
+Execute critical section
+↓
+Release monitor
+```
+
+Only one thread can own a monitor at any given time.
+
+---
+
+#### Instance Method Synchronization
+
+```java
+public synchronized void increment() {
+    count++;
+}
+```
+
+is exactly equivalent to:
+
+```java
+public void increment() {
+    synchronized (this) {
+        count++;
+    }
+}
+```
+
+The monitor of the current object (`this`) is used.
+
+---
+
+#### Static Method Synchronization
+
+```java
+public static synchronized void print() {
+}
+```
+
+is equivalent to:
+
+```java
+public static void print() {
+    synchronized (Counter.class) {
+    }
+}
+```
+
+Static synchronized methods lock the **Class object**, not any instance.
+
+---
+
+#### Instance Lock vs Class Lock
+
+```java
+Counter c1 = new Counter();
+Counter c2 = new Counter();
+```
+
+- `c1.increment()` locks only `c1`
+- `c2.increment()` locks only `c2`
+- Both can execute simultaneously because they use different monitors.
+
+Static synchronized methods always lock `Counter.class`, so only one thread across the JVM can execute that static synchronized method at a time.
+
+---
+
+#### Why Prefer Block-Level Synchronization?
+
+Instead of locking an entire method:
+
+```java
+public synchronized void process() {
+    slowTask();
+    count++;
+    print();
+}
+```
+
+prefer locking only the shared state:
+
+```java
+public void process() {
+    slowTask();
+
+    synchronized (lock) {
+        count++;
+    }
+
+    print();
+}
+```
+
+Benefits:
+
+- Smaller critical section
+- Less contention
+- Better scalability
+- Better lock granularity
+
+---
+
+#### Why Use a `private final` Lock Object?
+
+```java
+private final Object lock = new Object();
+
+public void increment() {
+    synchronized (lock) {
+        count++;
+    }
+}
+```
+
+instead of
+
+```java
+synchronized (this) {
+    count++;
+}
+```
+
+**Reason:** `this` is visible to external code.
+
+Someone else could accidentally write:
+
+```java
+synchronized(counter) {
+    Thread.sleep(10000);
+}
+```
+
+If your implementation also synchronizes on `this`, your methods become blocked by external code.
+
+A private lock object hides the locking mechanism and prevents outside interference.
+
+---
+
+#### Why `final`?
+
+```java
+private final Object lock = new Object();
+```
+
+`final` guarantees that the lock reference never changes.
+
+If the lock object were reassigned, different threads could synchronize on different objects, breaking thread safety.
+
+---
+
+#### Quick Revision Summary
+
+| Concept | Lock Used |
+|----------|-----------|
+| `synchronized(this)` | Current object's monitor |
+| `synchronized(lock)` | Custom lock object's monitor |
+| `synchronized(obj)` | Specified object's monitor |
+| Instance synchronized method | `this` |
+| Static synchronized method | `ClassName.class` |
+| Intrinsic lock | One hidden monitor per object (and per `Class` object) |
+
+
 ### `volatile`
 - Guarantees **visibility** (writes are immediately visible to other threads) and prevents instruction reordering around the variable (happens-before).
 - Does **NOT** guarantee atomicity. `volatile int counter; counter++;` is still a race condition (read-modify-write is 3 separate operations).
@@ -123,9 +349,9 @@ StampedLock sl = new StampedLock();
 long stamp = sl.tryOptimisticRead();
 int value = data; // read without locking
 if (!sl.validate(stamp)) {
-    stamp = sl.readLock(); // fall back to real lock
+stamp = sl.readLock(); // fall back to real lock
     try { value = data; } finally { sl.unlockRead(stamp); }
-}
+        }
 ```
 
 ---
@@ -204,7 +430,7 @@ Never manually manage raw `Thread` objects in production — use `ExecutorServic
 ```java
 ExecutorService executor = Executors.newFixedThreadPool(10);
 executor.submit(() -> processPayment(order));
-executor.shutdown();
+        executor.shutdown();
 executor.awaitTermination(30, TimeUnit.SECONDS);
 ```
 
@@ -220,11 +446,11 @@ executor.awaitTermination(30, TimeUnit.SECONDS);
 
 ```java
 ThreadPoolExecutor executor = new ThreadPoolExecutor(
-    10,                              // core pool size
-    20,                              // max pool size
-    60L, TimeUnit.SECONDS,           // idle thread keep-alive
-    new ArrayBlockingQueue<>(500),   // BOUNDED queue
-    new ThreadPoolExecutor.CallerRunsPolicy() // backpressure: caller thread runs task if saturated
+        10,                              // core pool size
+        20,                              // max pool size
+        60L, TimeUnit.SECONDS,           // idle thread keep-alive
+        new ArrayBlockingQueue<>(500),   // BOUNDED queue
+        new ThreadPoolExecutor.CallerRunsPolicy() // backpressure: caller thread runs task if saturated
 );
 ```
 
@@ -252,11 +478,11 @@ Limitations: no callback/composition support, `get()` blocks, no easy way to com
 ### `CompletableFuture` (Java 8+) — the modern async toolkit
 ```java
 CompletableFuture<Order> future = CompletableFuture
-    .supplyAsync(() -> fetchOrder(orderId), executor)   // async computation, runs on given executor
-    .thenApply(order -> enrichOrder(order))              // transform result (sync, same thread)
-    .thenApplyAsync(order -> validate(order), executor)   // transform result (async, on executor)
-    .exceptionally(ex -> fallbackOrder())                 // handle exception, provide default
-    .thenAccept(order -> log.info("processed {}", order)); // consume, no return value
+        .supplyAsync(() -> fetchOrder(orderId), executor)   // async computation, runs on given executor
+        .thenApply(order -> enrichOrder(order))              // transform result (sync, same thread)
+        .thenApplyAsync(order -> validate(order), executor)   // transform result (async, on executor)
+        .exceptionally(ex -> fallbackOrder())                 // handle exception, provide default
+        .thenAccept(order -> log.info("processed {}", order)); // consume, no return value
 ```
 
 **Key methods interviewers expect you to know cold:**
@@ -282,7 +508,7 @@ CompletableFuture<Integer> a = f.thenApply(x -> x + 1);
 // thenCompose: use when the function itself returns a CompletableFuture
 // (avoids CompletableFuture<CompletableFuture<T>> nesting — like flatMap vs map)
 CompletableFuture<Order> b = fetchUserAsync(id)
-    .thenCompose(user -> fetchOrderAsync(user.getId()));
+        .thenCompose(user -> fetchOrderAsync(user.getId()));
 ```
 
 **Combining independent async calls (very common in microservice fan-out):**
@@ -291,7 +517,7 @@ CompletableFuture<User> userFuture = CompletableFuture.supplyAsync(() -> fetchUs
 CompletableFuture<List<Order>> ordersFuture = CompletableFuture.supplyAsync(() -> fetchOrders(id));
 
 CompletableFuture<UserProfile> combined = userFuture.thenCombine(ordersFuture,
-    (user, orders) -> new UserProfile(user, orders));
+        (user, orders) -> new UserProfile(user, orders));
 
 UserProfile profile = combined.get(5, TimeUnit.SECONDS); // always use a timeout in prod
 ```
@@ -302,19 +528,19 @@ UserProfile profile = combined.get(5, TimeUnit.SECONDS); // always use a timeout
 @Bean
 public Executor paymentExecutor() {
     return new ThreadPoolExecutor(10, 20, 60, TimeUnit.SECONDS,
-        new ArrayBlockingQueue<>(200), new ThreadPoolExecutor.CallerRunsPolicy());
+            new ArrayBlockingQueue<>(200), new ThreadPoolExecutor.CallerRunsPolicy());
 }
 ```
 
 ### Exception handling in async chains
 ```java
 CompletableFuture.supplyAsync(() -> riskyCall())
-    .handle((result, ex) -> {
+        .handle((result, ex) -> {
         if (ex != null) {
-            log.error("failed", ex);
+        log.error("failed", ex);
             return fallback();
         }
-        return result;
+                return result;
     });
 ```
 Unhandled exceptions in a `CompletableFuture` chain are swallowed unless you call `.get()`/`.join()` (which rethrow wrapped in `ExecutionException`/`CompletionException`) or use `.exceptionally()`/`.handle()`.
@@ -373,8 +599,8 @@ map.merge(key, 1, Integer::sum); // atomic increment-or-insert
 ```java
 // Deadlock-prone
 synchronized (lockA) {
-    synchronized (lockB) { /* ... */ }
-}
+synchronized (lockB) { /* ... */ }
+        }
 // Thread 2 does the reverse order → deadlock risk
 ```
 **Fix: consistent lock ordering** — always acquire locks in the same global order (e.g., by object hash code or an assigned ID) across all code paths.
@@ -393,7 +619,7 @@ Gives each thread its own independent copy of a variable — no synchronization 
 
 ```java
 private static final ThreadLocal<SimpleDateFormat> formatter =
-    ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd"));
+        ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd"));
 ```
 
 Common real use: storing request-scoped data (e.g., a correlation/trace ID, or the authenticated user) across a call chain without passing it through every method signature — MDC in logging frameworks (Logback/Log4j2) uses this internally.
@@ -402,10 +628,10 @@ Common real use: storing request-scoped data (e.g., a correlation/trace ID, or t
 
 ```java
 try {
-    contextHolder.set(requestContext);
-    // process request
+        contextHolder.set(requestContext);
+// process request
 } finally {
-    contextHolder.remove(); // mandatory in pooled-thread environments
+        contextHolder.remove(); // mandatory in pooled-thread environments
 }
 ```
 
@@ -455,8 +681,8 @@ Increasingly asked about in senior interviews since Java 21 is now mainstream in
 
 ```java
 try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    executor.submit(() -> handleRequest());
-}
+        executor.submit(() -> handleRequest());
+        }
 ```
 - Virtual threads are lightweight, JVM-managed threads (not 1:1 with OS threads) — you can spin up millions of them.
 - Designed for **I/O-bound, blocking-style code** (e.g., blocking JDBC calls, blocking HTTP clients) — write simple synchronous-looking code, get async-level scalability, without needing `CompletableFuture` chains.
