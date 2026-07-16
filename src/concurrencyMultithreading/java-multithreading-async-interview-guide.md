@@ -1624,6 +1624,194 @@ CompletableFuture<Order> future = CompletableFuture
 | `handle` | see both result and exception, decide outcome either way |
 | `whenComplete` | side-effect callback, doesn't change result |
 
+
+
+### Deep Dive: `map()` vs `flatMap()` → `thenApply()` vs `thenCompose()` (Interview Revision)
+
+**Golden analogy**
+
+| Streams | CompletableFuture |
+|---|---|
+| `map()` | `thenApply()` |
+| `flatMap()` | `thenCompose()` |
+
+### `map()`
+Transforms **one object into one object**.
+
+```
+Employee
+   │
+map(getName)
+   │
+String
+```
+
+If the mapping function returns a collection:
+
+```
+Employee
+   │
+map(getPhones)
+   │
+List<String>
+```
+
+Result:
+
+```
+List<List<String>>
+```
+
+because `map()` simply collects whatever your function returns.
+
+---
+
+### `flatMap()`
+
+`flatMap()` = **map + flatten**
+
+```
+Employee
+   │
+flatMap(emp -> emp.getPhones().stream())
+   │
+Stream<String>
+```
+
+Result:
+
+```
+111
+222
+333
+444
+555
+```
+
+instead of
+
+```
+[
+ [111,222],
+ [333,444],
+ [555]
+]
+```
+
+---
+
+### `thenApply()`
+
+Use when the lambda returns a **plain value**.
+
+```java
+fetchUserAsync(id)
+    .thenApply(user -> user.getName())
+```
+
+Type flow
+
+```
+CompletableFuture<User>
+        ↓
+       User
+        ↓
+      String
+        ↓
+CompletableFuture<String>
+```
+
+---
+
+### `thenCompose()`
+
+Use when the lambda returns another **CompletableFuture**.
+
+```java
+fetchUserAsync(id)
+    .thenCompose(this::fetchOrderAsync)
+```
+
+Type flow
+
+```
+CompletableFuture<User>
+        ↓
+       User
+        ↓
+CompletableFuture<Order>
+        ↓
+     Flatten
+        ↓
+CompletableFuture<Order>
+```
+
+---
+
+### Multi-stage chain
+
+Correct:
+
+```
+Future<User>
+      ↓
+Future<Order>
+      ↓
+Future<Payment>
+      ↓
+Future<Invoice>
+```
+
+Wrong (using `thenApply` for async methods):
+
+```
+Future<User>
+      ↓
+Future<Future<Order>>
+      ↓
+Future<Future<Future<Payment>>>
+      ↓
+Future<Future<Future<Future<Invoice>>>>
+```
+
+---
+
+### Interview Rules
+
+| Lambda returns | Use |
+|---|---|
+| `T` | `thenApply()` |
+| `CompletableFuture<T>` | `thenCompose()` |
+
+| Lambda returns | thenApply | thenCompose |
+|---|---|---|
+| `T` | ✅ `CompletableFuture<T>` | ❌ Compile error |
+| `CompletableFuture<T>` | ✅ `CompletableFuture<CompletableFuture<T>>` | ✅ `CompletableFuture<T>` |
+
+---
+
+### Memory Trick
+
+Think of every `CompletableFuture` as a **box**.
+
+- `thenApply()` **wraps** whatever the lambda returns.
+- `thenCompose()` **unwraps one Future layer** if the lambda already returned a `CompletableFuture`.
+
+```
+thenApply  = wrap
+thenCompose = wrap + unwrap(one Future)
+```
+
+### One-liners
+
+> `map()` ↔ `thenApply()`
+
+> `flatMap()` ↔ `thenCompose()`
+
+> `flatMap = map + flatten`
+
+> `thenCompose = thenApply + flatten`
+
 **`thenApply` vs `thenCompose` — classic interview question:**
 ```java
 // thenApply: use when the function returns a plain value
@@ -1693,7 +1881,169 @@ semaphore.acquire();
 try { callDownstreamService(); } finally { semaphore.release(); }
 ```
 
-**CountDownLatch vs CyclicBarrier:** latch is one-time-use and threads don't wait on each other symmetrically (some just count down without waiting); barrier is reusable and *all* parties wait for each other every cycle.
+**
+
+## 🧠 Coordination Utilities – Interview Revision Cheat Sheet
+
+### 1. CountDownLatch 🔒
+**Analogy:** 🚀 Rocket launch
+
+```
+Fuel ✔
+Weather ✔
+Navigation ✔
+    ↓
+ Launch
+```
+
+- One-time countdown.
+- Workers call `countDown()`.
+- Waiting thread(s) call `await()`.
+- Releases everyone when count reaches **0**.
+- **Not reusable.**
+
+**Use:** Service startup, wait for initialization.
+
+**Memory:** **Boss waits, workers don't.**
+
+---
+
+### 2. CyclicBarrier 🚧
+**Analogy:** 🏃 Marathon checkpoint
+
+```
+T1 ----\
+T2 -----> Barrier
+T3 ----/
+
+↓
+
+All continue together
+```
+
+- All participating threads wait.
+- Automatically resets after each round.
+- Fixed number of participants.
+
+**Use:** Parallel computation, simulations, Map-Reduce phases.
+
+**Memory:** **Everyone waits for everyone.**
+
+---
+
+### 3. Semaphore 🚦
+**Analogy:** 🅿️ Parking lot
+
+```
+5 Parking Spaces
+
+🚗🚗🚗🚗🚗  Allowed
+
+🚗 waits
+```
+
+- Limits concurrent access using permits.
+- `acquire()` → take permit
+- `release()` → return permit
+
+**Use:** DB connections, REST APIs, printers, GPUs.
+
+**Memory:** **Only N threads allowed simultaneously.**
+
+---
+
+### 4. Phaser 🔄
+**Analogy:** 🎓 College course
+
+```
+Phase 1 : A B C
+
+↓
+
+C leaves
+
+↓
+
+Phase 2 : A B
+
+↓
+
+D joins
+
+↓
+
+Phase 3 : A B D
+```
+
+Think of it as:
+
+> **CyclicBarrier + Dynamic participants**
+
+- Reusable.
+- Multiple phases.
+- Threads can `register()`.
+- Threads can `arriveAndDeregister()`.
+- Tracks current phase.
+
+**Use:** Multi-stage workflows, simulations, complex pipelines.
+
+**Memory:** **Barrier where the team can grow or shrink.**
+
+---
+
+### 5. Exchanger 🤝
+**Analogy:** Two chefs exchange trays
+
+```
+Chef A  ⇄  Chef B
+Tray A     Tray B
+```
+
+- Exactly two threads exchange objects.
+- Both wait until the other arrives.
+
+**Use:** Producer/Consumer buffer swap.
+
+**Memory:** **Two threads meet and swap objects.**
+
+---
+
+## ⭐ Quick Comparisons
+
+### CountDownLatch vs CyclicBarrier
+
+| CountDownLatch | CyclicBarrier |
+|---|---|
+| Boss waits | Everyone waits |
+| One-time | Reusable |
+| Workers don't wait | All wait together |
+| Countdown to zero | Meet every round |
+
+### CyclicBarrier vs Phaser
+
+| CyclicBarrier | Phaser |
+|---|---|
+| Fixed participants | Dynamic participants |
+| Reusable | Reusable |
+| Same threads every round | Threads can join/leave |
+| Barrier only | Barrier + Multiple phases |
+
+## ⭐ 5-Second Recall
+
+```
+CountDownLatch → Wait until work finishes
+
+CyclicBarrier  → Wait for each other
+
+Semaphore      → Only N at a time
+
+Phaser         → Barrier + changing team
+
+Exchanger      → Two threads swap objects
+```
+
+
+CountDownLatch vs CyclicBarrier:** latch is one-time-use and threads don't wait on each other symmetrically (some just count down without waiting); barrier is reusable and *all* parties wait for each other every cycle.
 
 ---
 
