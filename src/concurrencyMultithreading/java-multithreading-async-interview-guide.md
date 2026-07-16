@@ -2102,10 +2102,10 @@ Common real use: storing request-scoped data (e.g., a correlation/trace ID, or t
 
 ```java
 try {
-        contextHolder.set(requestContext);
-// process request
+    contextHolder.set(requestContext);
+    // process request
 } finally {
-        contextHolder.remove(); // mandatory in pooled-thread environments
+    contextHolder.remove(); // mandatory in pooled-thread environments
 }
 ```
 
@@ -2135,6 +2135,223 @@ class SumTask extends RecursiveTask<Long> {
     }
 }
 ```
+
+
+
+## 🧠 Fork/Join & Parallel Streams – Interview Revision Cheat Sheet
+
+### 🎯 Core Idea
+
+**Fork/Join = Divide → Compute → Combine**
+
+```
+Big Task
+
+     ↓
+
+Split into smaller tasks
+
+     ↓
+
+Execute in parallel
+
+     ↓
+
+Combine results
+```
+
+Designed for **CPU-bound recursive divide-and-conquer** algorithms.
+
+Examples:
+- Array sum
+- Merge sort
+- Quick sort
+- Image processing
+
+---
+
+## RecursiveTask vs RecursiveAction
+
+| Class | Returns Result? | Use |
+|---|---|---|
+| `RecursiveTask<T>` | ✅ Yes | Sum, search, merge |
+| `RecursiveAction` | ❌ No | Resize images, update files |
+
+---
+
+## Fork vs Compute vs Join
+
+```java
+left.fork();
+long right = right.compute();
+long leftResult = left.join();
+return leftResult + right;
+```
+
+### Meaning
+
+- **fork()** → Submit task asynchronously.
+- **compute()** → Current thread performs work immediately.
+- **join()** → Wait for forked task and get its result.
+
+### Interview Gotcha ⭐
+
+Why **not**:
+
+```java
+left.fork();
+right.fork();
+```
+
+Because it creates two scheduled tasks.
+
+Better:
+
+```
+fork one task
++
+current thread computes the other
++
+join later
+```
+
+This reduces scheduling overhead and keeps the current thread busy.
+
+**Memory:** *Fork one, compute one, join one.*
+
+---
+
+### Work Stealing
+
+**Analogy:** 🍽 Waiters in a restaurant
+
+```
+Worker1 : 100 tasks
+
+Worker2 : 0 tasks
+
+↓
+
+Worker2 steals work
+
+↓
+
+Both stay busy
+```
+
+Idle workers steal tasks from busy workers' queues.
+
+**Goal:** Better CPU utilization and load balancing.
+
+**Memory:** *Idle workers never stay idle.*
+
+---
+
+## parallelStream()
+
+```
+list.parallelStream()
+```
+
+Uses:
+
+```
+ForkJoinPool.commonPool()
+```
+
+internally.
+
+Best for:
+
+- CPU-intensive collection processing
+- Large datasets
+- Independent computations
+
+Avoid:
+
+- Database calls
+- REST calls
+- Kafka/network I/O
+- Long blocking operations
+
+Because blocked threads can starve the shared common pool.
+
+---
+
+## CompletableFuture Gotcha ⭐
+
+By default:
+
+```java
+CompletableFuture.supplyAsync(...)
+```
+
+also uses:
+
+```
+ForkJoinPool.commonPool()
+```
+
+For blocking work, prefer:
+
+```java
+CompletableFuture.supplyAsync(task, customExecutor)
+```
+
+instead of the common pool.
+
+---
+
+### Quick Comparison
+
+| Feature | Fork/Join | parallelStream() |
+|---|---|---|
+| Manual control | ✅ | ❌ |
+| Uses ForkJoinPool | ✅ | ✅ |
+| Divide & Conquer | ✅ | Internal |
+| Work stealing | ✅ | ✅ |
+| Best for CPU work | ✅ | ✅ |
+| Good for blocking I/O | ❌ | ❌ |
+
+---
+
+### ⭐ 5-Second Recall
+
+```
+Fork()           → Run task asynchronously
+
+Compute()        → Current thread does work
+
+Join()           → Wait & collect result
+
+RecursiveTask    → Returns value
+
+RecursiveAction  → No return value
+
+Work Stealing    → Idle workers steal tasks
+
+parallelStream() → Uses common ForkJoinPool
+
+Best for         → CPU-bound work
+
+Avoid            → Blocking I/O
+```
+
+### ⭐ One-line Interview Answers
+
+**Fork/Join**
+
+> Divide-and-conquer framework for CPU-intensive recursive algorithms.
+
+**Work Stealing**
+
+> Idle worker threads steal tasks from busy workers to improve load balancing.
+
+**parallelStream()**
+
+> Parallel collection processing built on the shared `ForkJoinPool.commonPool()`; ideal for CPU-bound work, avoid blocking I/O.
+
+
 - **Work-stealing**: idle threads in the pool "steal" tasks from the queues of busy threads, improving load balancing for divide-and-conquer workloads.
 - `parallelStream()` uses the common `ForkJoinPool` under the hood — same caveat as `CompletableFuture`: don't run long/blocking I/O tasks on it, since it can starve other parallel-stream usage across the JVM.
 
@@ -2213,3 +2430,6 @@ For `execute()`: the exception propagates to the thread's uncaught exception han
 ---
 
 *Given your payments background: a strong framing for "tell me about a concurrency problem you solved" is the trade-off between throughput and correctness under load — e.g., bounding thread pool queues to avoid OOM during traffic spikes while using `CallerRunsPolicy` for graceful backpressure, or using `ConcurrentHashMap.merge` for atomic idempotency-key tracking in a high-TPS transaction path.*
+
+
+
