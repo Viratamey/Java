@@ -1398,6 +1398,186 @@ This means **strict global FIFO execution is NOT guaranteed**. FIFO is guarantee
 > `ThreadPoolExecutor` first creates core threads, then queues tasks, then creates extra threads only after the queue is full, and finally rejects tasks when both the queue and maximum thread limit are exhausted.
 
 
+
+### Rejection Policies (Interview Deep Dive)
+
+A rejection policy is invoked **only when**:
+
+1. Core threads are busy.
+2. Queue is full.
+3. Maximum thread count has been reached.
+
+Example configuration:
+
+```java
+core = 2
+max = 4
+queue = 2
+```
+
+State before rejection:
+
+```
+Running:
+Thread1 -> Task1
+Thread2 -> Task2
+Thread3 -> Task5
+Thread4 -> Task6
+
+Queue:
+Task3
+Task4
+
+Incoming:
+Task7
+```
+
+At this point the pool cannot:
+- create another thread
+- enqueue another task
+
+So it invokes the configured `RejectedExecutionHandler`.
+
+#### 1. AbortPolicy (Default)
+
+```
+Task7
+   ↓
+Pool Full
+   ↓
+RejectedExecutionException
+```
+
+- Throws `RejectedExecutionException`
+- Caller immediately knows the system is overloaded.
+- Best for critical business operations where silently losing work is unacceptable.
+
+Typical use:
+- Payments
+- Orders
+- Banking transactions
+
+---
+
+#### 2. CallerRunsPolicy ⭐ (Most common production choice)
+
+```
+Client Thread
+      │
+submit(Task7)
+      │
+Pool Full
+      │
+Caller executes Task7 itself
+```
+
+Instead of rejecting the task, the **submitting thread executes it**.
+
+This naturally slows down the producer because it becomes busy doing work instead of submitting more tasks.
+
+This is called **backpressure**.
+
+Example:
+
+```
+Tomcat Request Thread
+        │
+submit(payment)
+        │
+Pool Full
+        │
+Tomcat thread processes payment itself
+```
+
+While processing the payment, that request thread cannot accept another request, so incoming traffic slows naturally instead of overwhelming the server.
+
+Excellent choice for:
+- REST APIs
+- Payment services
+- Kafka producers
+- High-throughput backend services
+
+---
+
+#### 3. DiscardPolicy
+
+```
+Task7
+   │
+Pool Full
+   │
+Dropped
+```
+
+- Silently discards the task.
+- No exception.
+- Caller does not know the task was lost.
+
+Use only when occasional data loss is acceptable.
+
+Examples:
+- Metrics
+- Telemetry
+- Debug logging
+
+Never use for payments or orders.
+
+---
+
+#### 4. DiscardOldestPolicy
+
+Queue before:
+
+```
+Task3
+Task4
+```
+
+New task:
+
+```
+Task7
+```
+
+Executor removes:
+
+```
+Task3
+```
+
+Queue becomes:
+
+```
+Task4
+Task7
+```
+
+The oldest queued task is discarded so the newest task is accepted.
+
+Useful when newer data is more valuable than stale data.
+
+Examples:
+- Live dashboards
+- Stock prices
+- Sensor readings
+- Monitoring systems
+
+---
+
+### Quick Revision Table
+
+| Policy | What happens? | Best Use Case |
+|---|---|---|
+| AbortPolicy | Throws `RejectedExecutionException` | Payments, banking, orders |
+| CallerRunsPolicy | Caller thread executes task (backpressure) | APIs, payment systems, Kafka |
+| DiscardPolicy | Silently drops task | Metrics, telemetry |
+| DiscardOldestPolicy | Drops oldest queued task, queues newest | Dashboards, live updates |
+
+### Interview One-Liner
+
+> **CallerRunsPolicy** is usually the preferred production choice because it introduces **backpressure**—instead of crashing or letting the queue grow indefinitely, the submitting thread performs the work, naturally slowing incoming traffic. For critical workflows where failures must be explicit, use **AbortPolicy**. Avoid **DiscardPolicy** and **DiscardOldestPolicy** for business-critical operations because they intentionally drop work.
+
+
 ### Rejection policies (`RejectedExecutionHandler`)
 - `AbortPolicy` (default) — throws `RejectedExecutionException`.
 - `CallerRunsPolicy` — task runs on the submitting thread, naturally throttles producers. Good for backpressure in payment/order-flow systems.
