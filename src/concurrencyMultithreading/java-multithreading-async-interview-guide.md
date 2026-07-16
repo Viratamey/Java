@@ -246,8 +246,8 @@ instead of
 
 ```java
 synchronized (this) {
-    count++;
-}
+count++;
+        }
 ```
 
 **Reason:** `this` is visible to external code.
@@ -1314,6 +1314,90 @@ ThreadPoolExecutor executor = new ThreadPoolExecutor(
 );
 ```
 
+
+### ThreadPoolExecutor Execution Flow (Interview Revision)
+
+**Configuration**
+```java
+corePoolSize = 10
+maximumPoolSize = 20
+queue = new ArrayBlockingQueue<>(500);
+```
+
+**How tasks are accepted (this order is important):**
+
+```
+New task
+   │
+   ▼
+Current threads < corePoolSize ?
+   │
+ Yes ──► Create a new thread and execute task immediately
+   │
+  No
+   ▼
+Queue has space ?
+   │
+ Yes ──► Put task into queue
+   │
+  No
+   ▼
+Current threads < maximumPoolSize ?
+   │
+ Yes ──► Create a new NON-CORE thread and execute
+          the NEW incoming task immediately
+   │
+  No
+   ▼
+Reject task (RejectedExecutionHandler)
+```
+
+#### Example (`core=10`, `max=20`, `queue=500`)
+
+```
+Tasks 1-10
+→ Thread1...Thread10 execute immediately.
+
+Tasks 11-510
+→ Stored in queue (500 waiting tasks).
+
+Task 511
+→ Queue is FULL.
+→ Create Thread11.
+→ Thread11 executes Task511 immediately.
+
+Task 512
+→ Create Thread12.
+→ Executes Task512 immediately.
+
+...
+
+Task 520
+→ Create Thread20.
+
+Task 521
+→ Threads = 20 (max)
+→ Queue = 500 (full)
+→ Rejected.
+```
+
+**Interview gotcha:** New worker threads **do not** first drain the queue. The task that triggered the new thread (e.g., Task511) is handed directly to that thread. Older queued tasks (Task11...Task510) remain in the queue until an existing worker finishes and calls `queue.take()`.
+
+This means **strict global FIFO execution is NOT guaranteed**. FIFO is guaranteed only **within the queue**. During pool expansion, newer tasks may start executing before older queued tasks. This is an intentional design choice to improve throughput and keep the implementation simple.
+
+**Quick revision table**
+
+| Number | Meaning |
+|---|---|
+| `10` | Core threads kept alive |
+| `20` | Maximum threads that may exist |
+| `500` | Maximum **waiting tasks** (not threads) in the queue |
+
+**One-line interview answer**
+
+> `ThreadPoolExecutor` first creates core threads, then queues tasks, then creates extra threads only after the queue is full, and finally rejects tasks when both the queue and maximum thread limit are exhausted.
+
+
 ### Rejection policies (`RejectedExecutionHandler`)
 - `AbortPolicy` (default) — throws `RejectedExecutionException`.
 - `CallerRunsPolicy` — task runs on the submitting thread, naturally throttles producers. Good for backpressure in payment/order-flow systems.
@@ -1488,10 +1572,10 @@ Common real use: storing request-scoped data (e.g., a correlation/trace ID, or t
 
 ```java
 try {
-    contextHolder.set(requestContext);
-    // process request
+        contextHolder.set(requestContext);
+// process request
 } finally {
-    contextHolder.remove(); // mandatory in pooled-thread environments
+        contextHolder.remove(); // mandatory in pooled-thread environments
 }
 ```
 
