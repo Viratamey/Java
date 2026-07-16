@@ -715,6 +715,434 @@ if (!sl.validate(stamp)) {
 
 ---
 
+### Deep Dive: `ReentrantLock` (Revision Notes)
+
+#### Why does `ReentrantLock` exist when `synchronized` already provides mutual exclusion?
+
+`synchronized` is simple but rigid:
+- No way to **try** for a lock without blocking forever.
+- No way to **time out** while waiting.
+- No way to **interrupt** a thread that's stuck waiting for the lock.
+- No way to inspect whether the lock is held, or by how many threads are waiting.
+- Only one implicit condition per monitor (`wait`/`notify`).
+
+`ReentrantLock` is an explicit, object-based lock that solves all of the above, at the cost of the programmer having to manage lock/unlock manually (no automatic release on block exit).
+
+#### Basic usage — the mandatory pattern
+
+```java
+private final ReentrantLock lock = new ReentrantLock();
+
+public void updateBalance() {
+    lock.lock();              // acquire BEFORE the try block
+    try {
+        // critical section — same guarantees as synchronized
+        balance = balance + 100;
+    } finally {
+        lock.unlock();         // MUST be in finally — otherwise a thrown
+    }                          // exception leaves the lock held forever
+}
+```
+
+**Interview trap:** `lock.lock()` must be called *before* the `try` block, not inside it. If `lock()` itself were inside the `try` and it threw before acquiring (rare, but conceptually), the `finally` would call `unlock()` on a lock the thread never acquired — throwing `IllegalMonitorStateException`. Always: `lock(); try { ... } finally { unlock(); }`.
+
+#### What does "reentrant" actually mean?
+
+The **same thread** can acquire the same lock multiple times without deadlocking itself. The lock keeps an internal **hold count**, incremented on every `lock()` call by the owning thread and decremented on every `unlock()`. The lock is only truly released when the hold count reaches zero.
+
+```java
+class Vault {
+    private final ReentrantLock lock = new ReentrantLock();
+
+    public void outer() {
+        lock.lock();           // hold count = 1
+        try {
+            inner();            // same thread re-enters
+        } finally {
+            lock.unlock();      // hold count = 0
+        }
+    }
+
+    public void inner() {
+        lock.lock();           // hold count = 2 (same thread, no deadlock)
+        try {
+            // ...
+        } finally {
+            lock.unlock();      // hold count = 1
+        }
+    }
+}
+```
+Without reentrancy, `outer()` calling `inner()` (which locks the same lock) would deadlock the thread against itself. `synchronized` is also reentrant for the same reason — this is expected, standard Java locking behavior, not a special feature.
+
+**Rule to remember:** every `lock()` must be matched by exactly one `unlock()` — if you lock twice, you must unlock twice, or the lock never becomes free for other threads.
+
+#### `tryLock()` — non-blocking acquisition
+
+```java
+if (lock.tryLock()) {
+    try {
+        // got the lock immediately — proceed
+    } finally {
+        lock.unlock();
+    }
+} else {
+    // didn't get the lock — do something else instead of blocking
+    log.warn("resource busy, skipping");
+}
+```
+Useful when blocking indefinitely is unacceptable — e.g., a background cleanup task that should skip its run rather than queue up behind a slow one.
+
+#### `tryLock(timeout, unit)` — bounded wait
+
+```java
+try {
+    if (lock.tryLock(2, TimeUnit.SECONDS)) {
+        try {
+            // proceed
+        } finally {
+            lock.unlock();
+        }
+    } else {
+        // timed out — avoid unbounded thread pile-up, fail fast
+        throw new TimeoutException("could not acquire lock in time");
+    }
+} catch (InterruptedException e) {
+    Thread.currentThread().interrupt(); // restore interrupt status
+}
+```
+This is a genuinely valuable production pattern in payment/order-processing systems: instead of a request thread blocking forever behind lock contention (which can cascade into thread-pool exhaustion under load), you fail fast with a clear timeout and let the caller retry or return a 5xx/backpressure response.
+
+#### `lockInterruptibly()` — cancellable waiting
+
+```java
+public void process() throws InterruptedException {
+    lock.lockInterruptibly(); // can be interrupted while WAITING for the lock
+    try {
+        // ...
+    } finally {
+        lock.unlock();
+    }
+}
+```
+With `synchronized`, a thread blocked waiting to enter a monitor **cannot** be interrupted — it just sits there until it gets the lock. `lockInterruptibly()` lets another thread call `.interrupt()` on the waiting thread to cancel the wait, throwing `InterruptedException` instead of acquiring the lock. Useful for responsive cancellation (e.g., a task cancelled because a user aborted the request, or a shutdown sequence that needs to unblock stuck threads).
+
+#### Fairness
+
+```java
+ReentrantLock fairLock = new ReentrantLock(true); // fair mode
+```
+- **Unfair (default, `new ReentrantLock()`)**: a thread that just requested the lock can "barge" ahead of threads that have been waiting longer, if the lock happens to be free at that instant. Higher throughput, but risks **starvation** of long-waiting threads under sustained contention.
+- **Fair (`new ReentrantLock(true)`)**: threads acquire the lock strictly in the order they requested it (FIFO via an internal queue). No starvation, but noticeably lower throughput due to context-switch/queueing overhead — every thread has to be woken up and check its turn, even when the lock is otherwise free.
+
+**Interview one-liner:** "Fairness in `ReentrantLock` trades throughput for starvation-freedom — default to unfair unless you have evidence of a real starvation problem."
+
+#### `Condition` — multiple wait-sets per lock
+
+With `synchronized`, `wait()`/`notify()` operate on a single implicit condition per monitor. `ReentrantLock` lets you create **multiple independent conditions**, which is exactly what you need for producer-consumer where "not full" and "not empty" are logically different waits.
+
+```java
+class BoundedBuffer<T> {
+    private final ReentrantLock lock = new ReentrantLock();
+    private final Condition notFull = lock.newCondition();
+    private final Condition notEmpty = lock.newCondition();
+    private final Queue<T> queue = new LinkedList<>();
+    private final int capacity;
+
+    BoundedBuffer(int capacity) { this.capacity = capacity; }
+
+    public void put(T item) throws InterruptedException {
+        lock.lock();
+        try {
+            while (queue.size() == capacity) {
+                notFull.await();          // releases lock, waits on THIS condition only
+            }
+            queue.add(item);
+            notEmpty.signal();            // wakes only a thread waiting on notEmpty
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public T take() throws InterruptedException {
+        lock.lock();
+        try {
+            while (queue.isEmpty()) {
+                notEmpty.await();
+            }
+            T item = queue.poll();
+            notFull.signal();
+            return item;
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+```
+Compare this to the `synchronized`/`wait`/`notifyAll` version from Section 5: with a single monitor, `notifyAll()` wakes up **every** waiter (producers and consumers alike), and each has to re-check its own condition — wasteful when the two groups are waiting for opposite things. With separate `Condition` objects, `notFull.signal()` wakes only a producer, and `notEmpty.signal()` wakes only a consumer — much less unnecessary wake-and-recheck churn under high contention.
+
+#### Introspection methods (not available with `synchronized`)
+
+```java
+lock.isLocked();          // is anyone currently holding it?
+lock.isHeldByCurrentThread(); // does the calling thread hold it?
+lock.getHoldCount();      // how many times has the current thread re-entered?
+lock.getQueueLength();    // estimate of threads waiting to acquire
+```
+Handy for diagnostics/metrics/logging in production systems — e.g., exposing lock contention as a monitoring metric, something you simply cannot do with implicit monitors.
+
+#### Quick Revision Summary — `ReentrantLock`
+
+| Feature | `synchronized` | `ReentrantLock` |
+|---|---|---|
+| Automatic release on block exit | Yes | No — must call `unlock()` manually |
+| Try without blocking | No | `tryLock()` |
+| Bounded wait | No | `tryLock(timeout, unit)` |
+| Interruptible wait | No | `lockInterruptibly()` |
+| Fairness option | No | `new ReentrantLock(true)` |
+| Multiple condition queues | No (one wait-set) | Yes (`newCondition()`, as many as needed) |
+| Reentrant | Yes | Yes |
+| Introspection (`isLocked`, hold count, queue length) | No | Yes |
+
+---
+
+### Deep Dive: `ReentrantReadWriteLock` (Revision Notes)
+
+#### The problem it solves
+
+A plain `ReentrantLock` or `synchronized` block allows only **one thread at a time**, period — even if ten threads only want to *read* shared data and none of them are writing. For read-heavy workloads (e.g., a cache, a config object, reference/lookup data refreshed occasionally but read constantly), that's needless serialization of reads that don't actually conflict with each other.
+
+`ReentrantReadWriteLock` splits locking into two cooperating locks backed by the same underlying state:
+- **Read lock**: can be held by **multiple threads simultaneously**, as long as no thread holds the write lock.
+- **Write lock**: **exclusive** — only one thread, and no readers, can hold it at the same time.
+
+```
+Compatibility matrix:
+             Read lock held   Write lock held
+Read lock:   ALLOWED           BLOCKED
+Write lock:  BLOCKED           BLOCKED
+```
+
+#### Basic usage
+
+```java
+class Cache<K, V> {
+    private final Map<K, V> map = new HashMap<>();
+    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+    private final Lock readLock = rwLock.readLock();
+    private final Lock writeLock = rwLock.writeLock();
+
+    public V get(K key) {
+        readLock.lock();
+        try {
+            return map.get(key);          // multiple threads can be in here concurrently
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public void put(K key, V value) {
+        writeLock.lock();
+        try {
+            map.put(key, value);          // exclusive — no readers or other writers allowed in
+        } finally {
+            writeLock.unlock();
+        }
+    }
+}
+```
+Notice both `readLock()` and `writeLock()` return a plain `Lock` — same `lock()`/`unlock()`/`tryLock()`/`lockInterruptibly()` API as `ReentrantLock`, just backed by shared read/write semantics.
+
+#### Why is plain `HashMap` unsafe here, and why not just use `ConcurrentHashMap` instead?
+
+This is a very common interview follow-up. `ConcurrentHashMap` is usually the *better* choice for a simple key-value cache — it's purpose-built, more finely-grained, and battle-tested. `ReentrantReadWriteLock` earns its place when:
+- You need to protect a **multi-step compound operation** across several data structures atomically as one read or one write (e.g., reading two related maps consistently together — `ConcurrentHashMap`'s atomicity only covers single-map single-operation atomicity).
+- You're protecting a custom data structure that isn't a simple map (e.g., a read-heavy in-memory index, graph, or cache with derived/computed fields that must stay consistent as a unit).
+
+**Interview one-liner:** "`ConcurrentHashMap` gives you atomicity per-operation on a single map; `ReadWriteLock` gives you atomicity across an arbitrary block of code involving any shared state — reach for `ReadWriteLock` when your invariant spans more than what a single concurrent collection method call can atomically guarantee."
+
+#### Reentrancy details
+
+- The **write lock is reentrant** for the write-holding thread, same as `ReentrantLock`.
+- The **read lock is reentrant** too, for a thread that already holds the read lock.
+- **Lock downgrading is supported**: a thread holding the write lock can acquire the read lock *before* releasing the write lock, then release the write lock — this "downgrades" to a read lock without ever allowing another writer to sneak in between.
+
+```java
+public void updateAndRead() {
+    writeLock.lock();
+    try {
+        data = recompute();     // mutate under write lock
+        readLock.lock();        // acquire read lock WHILE still holding write lock (downgrade)
+        try {
+            writeLock.unlock(); // safe to release write lock now — we already hold read lock
+            return data;         // continue reading with only the read lock held
+        } finally {
+            readLock.unlock();
+        }
+    } finally {
+        // no-op if already unlocked above; shown for illustration only
+    }
+}
+```
+**Lock upgrading is NOT supported**: a thread holding only the read lock cannot acquire the write lock while still holding the read — attempting to do so will deadlock the thread against itself, because the write lock will never become available while any read lock (including its own) is held. If you need to go from reading to writing, you must fully release the read lock first, then acquire the write lock (accepting that another writer could get in between — re-check your condition after acquiring).
+
+#### Fairness and starvation considerations
+
+```java
+new ReentrantReadWriteLock(true); // fair mode
+```
+- **Unfair (default)**: better throughput; a write request can be repeatedly overtaken by a steady stream of new readers if reads keep arriving — a classic **writer starvation** risk in read-heavy, high-throughput systems.
+- **Fair mode**: readers arriving after a waiting writer will queue behind that writer rather than jump ahead of it — prevents writer starvation, at some cost to raw read throughput.
+
+**Interview flag:** if asked "can a `ReentrantReadWriteLock` starve a writer?" — yes, in unfair mode under sustained read pressure, which is exactly the scenario `StampedLock`'s optimistic reads were later designed to help with differently (see below), and exactly why fair mode exists as a mitigation.
+
+#### When to reach for it vs plain `ReentrantLock`
+
+Use `ReentrantReadWriteLock` when reads significantly outnumber writes **and** the critical section does real work (not just a single primitive read) — the locking overhead of `ReadWriteLock` itself is slightly higher than a plain lock, so for trivial critical sections on rarely-contended data, a plain `ReentrantLock` or even `synchronized` can outperform it. Always the answer to "it depends, benchmark it" if pushed on exact thresholds — but the conceptual trigger is **read:write ratio + criticality/cost of the shared computation**.
+
+#### Quick Revision Summary — `ReentrantReadWriteLock`
+
+| Aspect | Behavior |
+|---|---|
+| Multiple readers | Allowed concurrently |
+| Reader + writer together | Not allowed |
+| Multiple writers | Not allowed (exclusive) |
+| Read lock reentrant | Yes |
+| Write lock reentrant | Yes |
+| Write → read (downgrade) | Allowed |
+| Read → write (upgrade) | **Not allowed** — deadlocks if attempted |
+| Fairness option | Yes — prevents writer starvation, costs throughput |
+
+---
+
+### Deep Dive: `StampedLock` (Revision Notes)
+
+#### Why does `StampedLock` exist when `ReentrantReadWriteLock` already supports concurrent readers?
+
+`ReentrantReadWriteLock`'s read lock is still a **real lock** — every reader has to perform an actual acquire/release (with associated memory synchronization and, under contention, thread park/unpark overhead). For workloads that are *overwhelmingly* reads with only occasional writes, even that read-lock bookkeeping is measurable overhead at high throughput.
+
+`StampedLock` (Java 8+) introduces a third mode — **optimistic reading** — that involves **no locking at all** for the common case: a reader just reads the data and then checks afterward whether a write happened concurrently. If nothing changed, the reader is done, with none of the acquire/release cost of a real lock.
+
+#### The three modes
+
+```java
+StampedLock sl = new StampedLock();
+
+// 1. Write lock — exclusive, same idea as ReentrantReadWriteLock's write lock
+long writeStamp = sl.writeLock();
+try {
+    x = 10; y = 20;
+} finally {
+    sl.unlockWrite(writeStamp);
+}
+
+// 2. Pessimistic read lock — like a normal shared read lock (blocks writers)
+long readStamp = sl.readLock();
+try {
+    int a = x, b = y;
+} finally {
+    sl.unlockRead(readStamp);
+}
+
+// 3. Optimistic read — NO locking, just a version check
+long stamp = sl.tryOptimisticRead();   // returns a "stamp" (version number), doesn't block anyone
+int a = x, b = y;                       // read shared data WITHOUT holding any lock
+if (!sl.validate(stamp)) {              // did a write happen since we got the stamp?
+    // yes — our read may be inconsistent, fall back to a real read lock
+    stamp = sl.readLock();
+    try {
+        a = x; b = y;
+    } finally {
+        sl.unlockRead(stamp);
+    }
+}
+// use a, b — now guaranteed consistent
+```
+
+#### How does the "stamp" actually work?
+
+Every successful `writeLock()` (and its `unlockWrite()`) bumps an internal version/sequence number. `tryOptimisticRead()` just snapshots the current version and immediately returns — it never blocks and never prevents a writer from proceeding. After the reader finishes reading the shared fields, it calls `validate(stamp)`, which checks: *"has the version changed since I took my snapshot, or is a write currently in progress?"* If the version is unchanged, the reader's data is guaranteed consistent — no write squeezed in between the read operations. If the version changed, the optimistic read result must be discarded and treated as if the read never validly happened — retry with a real (pessimistic) `readLock()`.
+
+**This is the crux interview point:** `tryOptimisticRead()` does not actually protect your read — you must re-verify with `validate()` after reading, and be ready to fall back. Skipping the `validate()` call defeats the entire mechanism and silently reintroduces race conditions.
+
+#### Full realistic example — a coordinate holder
+
+```java
+class Point {
+    private double x, y;
+    private final StampedLock sl = new StampedLock();
+
+    void move(double deltaX, double deltaY) {
+        long stamp = sl.writeLock();
+        try {
+            x += deltaX;
+            y += deltaY;
+        } finally {
+            sl.unlockWrite(stamp);
+        }
+    }
+
+    double distanceFromOrigin() {
+        long stamp = sl.tryOptimisticRead();
+        double currentX = x, currentY = y;      // optimistic, unlocked read
+        if (!sl.validate(stamp)) {              // a write happened concurrently — retry safely
+            stamp = sl.readLock();
+            try {
+                currentX = x;
+                currentY = y;
+            } finally {
+                sl.unlockRead(stamp);
+            }
+        }
+        return Math.sqrt(currentX * currentX + currentY * currentY);
+    }
+}
+```
+Under low write contention, `distanceFromOrigin()` almost never has to fall back to `readLock()` — most calls complete with zero locking overhead at all, which is the entire performance win over `ReentrantReadWriteLock`.
+
+#### Why is `StampedLock` non-reentrant, and why does that matter?
+
+Unlike `ReentrantLock`/`ReentrantReadWriteLock`, **`StampedLock` is NOT reentrant**. If a thread already holding the write lock calls `writeLock()` again (even indirectly, through a nested method call), it will **deadlock itself** — there's no hold-count tracking.
+
+```java
+// DEADLOCK-PRONE — do not do this
+void outer() {
+    long stamp = sl.writeLock();
+    try {
+        inner(); // if inner() also calls sl.writeLock(), the thread deadlocks against itself
+    } finally {
+        sl.unlockWrite(stamp);
+    }
+}
+```
+**Interview flag:** always mention this trade-off — `StampedLock` gives you better throughput than `ReadWriteLock` for read-heavy workloads, but you give up reentrancy, so it's riskier in codebases with nested calls, recursive methods, or any code path where you can't easily guarantee a lock is never re-acquired by the same thread.
+
+#### Other important caveats
+
+- **Not compatible with `Condition`** — `StampedLock` has no `newCondition()` equivalent for the read/write modes.
+- **No producer-consumer-style wait/notify support** — if you need that, use `ReentrantLock` + `Condition`, or a `BlockingQueue`.
+- **The stamp returned by `writeLock()`/`readLock()` must be kept and passed back into the matching `unlockWrite()`/`unlockRead()`** — unlike `ReentrantLock`, there's no ambient "current lock state," so you must always thread the `long` stamp value through your method correctly.
+- **Interruption**: `StampedLock` does not implement the standard `Lock` interface, so `lockInterruptibly()` isn't available in the same form; separate interruptible variants (`readLockInterruptibly()`, `writeLockInterruptibly()`) exist if needed.
+- Conversion methods exist — `tryConvertToWriteLock(stamp)`, `tryConvertToReadLock(stamp)` — to attempt upgrading/downgrading without fully releasing and reacquiring, but these can fail (return `0`) and require careful handling.
+
+#### `ReentrantReadWriteLock` vs `StampedLock` — the interview comparison table
+
+| Aspect | `ReentrantReadWriteLock` | `StampedLock` |
+|---|---|---|
+| Reentrant | Yes (both read & write) | **No** — self-deadlock risk on re-entry |
+| Optimistic (lock-free) read mode | No | **Yes** (`tryOptimisticRead` + `validate`) |
+| Best for | Read-heavy, moderate contention, need reentrancy | Read-*dominant*, very high throughput, no recursive/nested locking |
+| `Condition` support | Yes | No |
+| API style | Standard `Lock` interface (`lock()`/`unlock()`) | Stamp-based (`long` stamp must be tracked and passed back) |
+| Writer starvation risk | Yes in unfair mode (mitigated by fair mode) | Writers still exclusive/blocking — optimistic readers don't starve writers, but readers must handle retries |
+| Complexity to use correctly | Lower — familiar lock/unlock pattern | Higher — must remember to `validate()`, non-reentrant traps |
+
+#### Interview one-liner to tie all three together
+
+> "`ReentrantLock` gives you a flexible exclusive lock with timeouts, interruptibility, and multiple conditions. `ReentrantReadWriteLock` extends that idea to let concurrent readers coexist, at the cost of possible writer starvation. `StampedLock` pushes further for read-dominant workloads by adding a lock-free optimistic read mode — at the cost of giving up reentrancy and condition support, so it needs more careful, disciplined usage."
+
+---
+
 ## 4. Atomic Variables & CAS
 
 `java.util.concurrent.atomic` — lock-free thread safety using **Compare-And-Swap (CAS)** at the hardware level.
@@ -725,12 +1153,85 @@ counter.incrementAndGet();
 counter.compareAndSet(5, 10); // set to 10 only if current value is 5
 ```
 
-**Why CAS over locks?** No blocking, no context switching, better throughput under low-to-moderate contention. Under very high contention, CAS retries can spin and hurt performance — that's when `LongAdder` (which stripes counters across cells to reduce contention, then sums on read) beats `AtomicLong`.
+### Why do we even need atomics? (`count++` is not one instruction)
 
-**Interview question: how does CAS work under the hood?**
-CPU instruction `cmpxchg` (x86) atomically compares memory value to expected value, and if equal, swaps in the new value — all as one atomic hardware operation. If another thread changed the value in between, CAS fails and Java code typically retries in a loop.
+```java
+class Counter {
+    int count = 0;
+    void increment() { count++; }
+}
+```
+`count++` looks like a single step but is actually **three operations**: read → add 1 → write back. If two threads both read `count = 5` before either writes back, both compute `6` and one increment is silently lost — a **race condition** (`5 → +1 → +1` should give `7`, but you get `6`).
 
-**ABA problem**: value changes A→B→A between your read and CAS — CAS succeeds even though the value *did* change in between. Solved with `AtomicStampedReference` (adds a version stamp).
+**Traditional fix — `synchronized`:** works, but every blocked thread has to be parked and later woken by the OS scheduler — a real context-switch cost (save registers → switch to kernel → restore the next thread → resume). Under heavy contention with many threads queued on one lock, this adds up fast.
+
+### What CAS does instead
+
+Rather than blocking other threads out, CAS asks the CPU to make a conditional update in one atomic hardware step:
+
+> *"Change this memory location to the new value, but only if it still holds the value I expect. If someone else already changed it, tell me it failed — don't touch anything."*
+
+```
+if (memory == expectedValue) {
+    memory = newValue;
+    return true;
+}
+return false;
+```
+This whole check-and-swap is a **single atomic CPU instruction** (`cmpxchg` on x86) — no other core can observe a half-done state, so no lock is needed.
+
+**How `incrementAndGet()` actually works internally** — a retry loop around CAS:
+```java
+do {
+    current = get();          // read current value
+    next = current + 1;       // compute new value
+} while (!compareAndSet(current, next)); // retry if someone else changed it first
+return next;
+```
+If another thread updated the value between the read and the CAS, `compareAndSet` fails (returns `false`) and the loop simply retries with the latest value — no blocking, no OS involvement.
+
+### Lock-free ≠ retry-free (contention still costs something)
+
+Under low contention, CAS almost always succeeds on the first try — very fast. Under **high contention** (hundreds of threads hammering one `AtomicInteger`), most CAS attempts fail and immediately retry (**spinning**) — the CPU burns cycles retrying instead of doing useful work, and throughput can degrade.
+
+**`LongAdder` fixes this** by splitting one counter into multiple internal **cells**. Different threads update different cells (much less collision), and the total is only summed on demand:
+```java
+LongAdder hits = new LongAdder();
+hits.increment();      // goes to one of several internal cells
+long total = hits.sum(); // sums all cells — use this only when you need the total
+```
+Use `AtomicLong`/`AtomicInteger` for low-to-moderate contention or when you need the value on every read; use `LongAdder` for write-heavy counters (metrics, hit counts) updated by many threads, where you rarely need the exact running total on every single update.
+
+### The ABA problem
+
+CAS only compares the **current value** to the expected value — it can't tell if the value changed and then changed back before your CAS ran:
+```
+Thread 1 reads:      top = A
+Thread 2 does:        A → B → A   (pops A, pushes B, pops B, pushes A back)
+Thread 1's CAS:       expected=A, memory=A → SUCCEEDS
+```
+CAS reports success, but the underlying structure (e.g., a lock-free stack's internal links) may have changed twice in between — Thread 1's assumptions about what's "underneath" A are now stale, which can silently corrupt the data structure.
+
+**Fix — `AtomicStampedReference`**: pair every value with a version stamp, e.g. `(A, 1)`. Even if the value returns to `A`, the stamp will have moved on to `3`, so a CAS expecting `(A, 1)` correctly fails.
+```java
+AtomicStampedReference<String> ref = new AtomicStampedReference<>("A", 1);
+ref.compareAndSet("A", "B", 1, 2); // succeeds only if value=="A" AND stamp==1
+```
+
+### Summary Table
+
+| Feature | `synchronized` | `AtomicInteger` (CAS) | `LongAdder` |
+|---|---|---|---|
+| Uses locks | Yes | No | No |
+| Blocks threads | Yes | No | No |
+| Retries on conflict | No | Yes | Yes (spread across cells) |
+| Best under low contention | Good | Excellent | Very good |
+| Best under high contention | Degrades (blocking) | Degrades (CAS-failure spinning) | Excellent |
+| Handles ABA problem | N/A | No | No (use `AtomicStampedReference`) |
+
+### Concise CAS Summary (say this out loud in an interview)
+
+> CAS (Compare-And-Swap) is a single atomic CPU instruction that updates a memory location **only if** it still holds the value the thread expects to see; otherwise it does nothing and reports failure. Java's atomic classes wrap this in a loop: read the value, compute the new one, try the CAS, and retry automatically if another thread got there first. This gives thread safety **without locking or blocking** — no thread ever sleeps or gets context-switched, so it's much cheaper than `synchronized` under low-to-moderate contention. The trade-off is that under very high contention, many threads keep failing and retrying ("spinning"), which wastes CPU — that's what `LongAdder` fixes, by splitting one counter into several independently-updated cells and summing them only when the total is needed. CAS's one blind spot is the **ABA problem** — it can't detect a value changing away and back before the CAS runs — solved by attaching a version stamp with `AtomicStampedReference`.
 
 ---
 
