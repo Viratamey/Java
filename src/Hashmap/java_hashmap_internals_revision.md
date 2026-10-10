@@ -28,6 +28,8 @@ These notes consolidate the concepts discussed, with examples, diagrams, impleme
 16. [Final mental model](#16-final-mental-model)
 17. [Added: Glossary](#17-added-glossary)
 18. [Added: Common traps checklist](#18-added-common-traps-checklist)
+19. [Added: HashMap vs HashSet](#19-added-hashmap-vs-hashset)
+20. [Added: How HashSet uses HashMap internally (the `PRESENT` value)](#20-added-how-hashset-uses-hashmap-internally-the-present-value)
 
 ---
 
@@ -517,7 +519,7 @@ A red-black tree is self-balancing. Searching a heavily collided tree bin can be
 > 💡 **Added clarification — how to read the thresholds.**
 >
 > - **Treeify (list → tree):** while inserting into a long chain, the insertion code checks whether the chain has grown to the treeify threshold. In the usual path this check fires when the chain would reach **9 nodes** (i.e. there were already 8). *At that point* it calls `treeifyBin`, which then asks: is the table length at least 64?
->   - **No (table < 64):** it **resizes** the table instead (spreading entries out), and the bin stays a list for now.
+    >   - **No (table < 64):** it **resizes** the table instead (spreading entries out), and the bin stays a list for now.
 >   - **Yes:** the bin is converted into a red-black tree.
 > - **Untreeify (tree → list):** the threshold is **6**, deliberately lower than 8. The gap (hysteresis) stops a bin from flipping back and forth between list and tree if its size hovers around one number.
 > - **Why trees at all?** If many keys have bad (or maliciously chosen) hash codes and pile into one bucket, a chain degrades lookup to `O(n)`. Trees cap that at roughly `O(log n)`, which also blunts hash-collision denial-of-service attacks.
@@ -944,3 +946,89 @@ return value    continue search
 - ❌ Assuming `new HashMap<>(n)` has room for exactly `n` entries without resizing.
 - ❌ Memorizing treeify/untreeify numbers as absolute rules (depends on table capacity ≥ 64 and insertion path).
 - ❌ Hand-computing bucket indexes from raw `hashCode()` and forgetting the spread step.
+
+---
+
+## 19. Added: HashMap vs HashSet
+
+`HashMap` stores **key-value pairs**, while `HashSet` stores **only unique elements**, with no values.
+
+`HashSet` is built on top of a `HashMap`. Internally it holds a `HashMap<E, Object>`, and every element you `add()` becomes a *key* in that map, paired with a shared dummy value (a constant called `PRESENT`). So everything in these notes about hashing, buckets, `equals()`, resizing and treeification applies to `HashSet` as well.
+
+| | `HashMap<K,V>` | `HashSet<E>` |
+|---|---|---|
+| Stores | Key → value mappings | Unique elements only |
+| Interface | `Map` | `Set` (via `Collection`) |
+| Add method | `put(key, value)` | `add(element)` |
+| Duplicates | Duplicate **keys** not allowed (value is overwritten); duplicate values are fine | Duplicate elements not allowed |
+| On duplicate | `put` replaces the value and returns the old one | `add` does nothing and returns `false` |
+| Lookup | `get(key)`, `containsKey(key)` | `contains(element)` only |
+| Null | One null key, many null values | One null element |
+| Order | Not guaranteed | Not guaranteed |
+| Complexity | `O(1)` average | `O(1)` average |
+
+```java
+Map<String, Integer> map = new HashMap<>();
+map.put("Apple", 100);
+map.put("Apple", 500);      // value replaced -> {Apple=500}
+
+Set<String> set = new HashSet<>();
+set.add("Apple");           // true  (added)
+set.add("Apple");           // false (already present, nothing changes)
+```
+
+**When to use which:**
+
+- Use a `HashMap` when you need to look something up by a key and get associated data back (id → employee).
+- Use a `HashSet` when you only care whether something is present, or you want to remove duplicates.
+
+**One consequence of the shared implementation:** keys in a `HashMap` and elements in a `HashSet` need the same things, namely a consistent `equals()`/`hashCode()` pair and immutability while stored. Mutating an element inside a `HashSet` breaks it the same way it breaks a map key (see [Section 11](#11-mutable-keys-a-dangerous-mistake)).
+
+---
+
+## 20. Added: How HashSet uses HashMap internally (the `PRESENT` value)
+
+If a `HashSet` is backed by a `HashMap`, what is stored as the value? It is **not** `null`. It is a shared dummy object:
+
+```java
+private transient HashMap<E, Object> map;
+
+// Dummy value to associate with an Object in the backing Map
+private static final Object PRESENT = new Object();
+
+public boolean add(E e) {
+    return map.put(e, PRESENT) == null;
+}
+```
+
+### Why not `null`?
+
+`put()` returns the *previous value* for that key, or `null` if there was no mapping. `HashSet.add()` uses that return value to decide whether the element was new:
+
+- Element is new: `put` returns `null`, so `add` returns `true`.
+- Element already exists: `put` returns the old value (`PRESENT`), which is not `null`, so `add` returns `false`.
+
+If the stored value were `null`, `put` would return `null` in both cases and `add()` couldn't tell "newly added" from "already there". This is the same ambiguity described in [Section 5](#5-exactly-how-putkey-value-works) and [Section 6](#6-exactly-how-getkey-works): a `null` return can't distinguish an absent key from a key mapped to `null`.
+
+### Memory cost
+
+`PRESENT` is `static final`, so there is exactly one such object shared by every entry in every `HashSet`. Each entry only costs a reference to it, not a new object.
+
+### Other methods follow the same pattern
+
+```java
+public boolean contains(Object o) { return map.containsKey(o); }
+public boolean remove(Object o)   { return map.remove(o) == PRESENT; }
+```
+
+### Mental picture
+
+```text
+HashSet<String> set = new HashSet<>();
+set.add("A");  set.add("B");  set.add("C");
+
+Internally (backing HashMap):
+  "A" -> PRESENT
+  "B" -> PRESENT
+  "C" -> PRESENT      (all three point to the SAME PRESENT object)
+```
