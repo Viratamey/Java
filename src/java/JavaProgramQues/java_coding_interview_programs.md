@@ -106,8 +106,8 @@ for (char ch : s.toCharArray()) freq.merge(ch, 1, Integer::sum);
 
 freq.forEach((k, v) -> { if (v > 1) System.out.println(k + " -> " + v); });  // duplicates
 
-        for (Map.Entry<Character, Integer> e : freq.entrySet())
-        if (e.getValue() == 1) { System.out.println(e.getKey()); break; }       // first non-repeating
+for (Map.Entry<Character, Integer> e : freq.entrySet())
+    if (e.getValue() == 1) { System.out.println(e.getKey()); break; }       // first non-repeating
 ```
 LinkedHashMap keeps insertion order, which is what makes the first-unique logic work.
 
@@ -120,8 +120,8 @@ long vowels = s.toLowerCase().chars().filter(c -> "aeiou".indexOf(c) >= 0).count
 ```java
 int first = Integer.MIN_VALUE, second = Integer.MIN_VALUE;
 for (int x : arr) {
-        if (x > first) { second = first; first = x; }
-        else if (x > second && x != first) second = x;
+    if (x > first) { second = first; first = x; }
+    else if (x > second && x != first) second = x;
 }
 ```
 
@@ -137,11 +137,11 @@ int missing = expected - actual;
 ```java
 Map<Integer, Integer> seen = new HashMap<>();
 for (int i = 0; i < nums.length; i++) {
-Integer j = seen.get(target - nums[i]);
+    Integer j = seen.get(target - nums[i]);
     if (j != null) return new int[]{j, i};
-        seen.put(nums[i], i);
+    seen.put(nums[i], i);
 }
-        return null;   // O(n) time, O(n) space
+return null;   // O(n) time, O(n) space
 ```
 
 **Program 14. Armstrong number and sum of digits.**
@@ -187,11 +187,11 @@ static int binarySearch(int[] a, int key) {      // array must be sorted
 }
 
 for (int i = 0; i < a.length - 1; i++) {
-boolean swapped = false;
+    boolean swapped = false;
     for (int j = 0; j < a.length - 1 - i; j++)
         if (a[j] > a[j + 1]) { int t = a[j]; a[j] = a[j + 1]; a[j + 1] = t; swapped = true; }
-        if (!swapped) break;
-        }
+    if (!swapped) break;
+}
 ```
 Binary search is O(log n). Bubble sort is O(n^2) in the worst case and O(n) when already sorted, thanks to the `swapped` flag.
 
@@ -227,14 +227,14 @@ static boolean balanced(String s) {
 ```java
 int[] unique = Arrays.stream(arr).distinct().toArray();
 
-        Set<Integer> seen = new HashSet<>(), dups = new LinkedHashSet<>();
+Set<Integer> seen = new HashSet<>(), dups = new LinkedHashSet<>();
 for (int x : arr) if (!seen.add(x)) dups.add(x);
 ```
 
 **Program 22. Pyramid pattern.**
 ```java
 for (int i = 1; i <= n; i++)
-        System.out.println(" ".repeat(n - i) + "*".repeat(2 * i - 1));
+    System.out.println(" ".repeat(n - i) + "*".repeat(2 * i - 1));
 ```
 
 ---
@@ -361,8 +361,8 @@ new Thread(() -> { synchronized (a) { synchronized (b) { System.out.println("T2"
 AtomicInteger count = new AtomicInteger();
 ExecutorService ex = Executors.newFixedThreadPool(10);
 for (int i = 0; i < 10; i++)
-        ex.submit(() -> { for (int j = 0; j < 1000; j++) count.incrementAndGet(); });
-        ex.shutdown();
+    ex.submit(() -> { for (int j = 0; j < 1000; j++) count.incrementAndGet(); });
+ex.shutdown();
 ex.awaitTermination(1, TimeUnit.MINUTES);
 System.out.println(count.get());   // 10000
 ```
@@ -467,29 +467,44 @@ Assume `record Employee(String name, String dept, double salary) {}` and `List<E
 **Program 31. Separate even and odd numbers.**
 ```java
 Map<Boolean, List<Integer>> parts = nums.stream()
-        .collect(Collectors.partitioningBy(n -> n % 2 == 0));
+    .collect(Collectors.partitioningBy(n -> n % 2 == 0));
 ```
+
+`partitioningBy()` is designed for a predicate and creates the `true` and `false` partitions. For comparison, `groupingBy()` can group by a classifier that returns any key type.
+
+**Program 31a. Group numbers by their remainder when divided by 3 (`groupingBy`).**
+```java
+Map<Integer, List<Integer>> groups = nums.stream()
+    .collect(Collectors.groupingBy(n -> n % 3));
+
+// For nums = List.of(1, 2, 3, 4, 5, 6):
+// 0 -> [3, 6]
+// 1 -> [1, 4]
+// 2 -> [2, 5]
+```
+
+Here, `n -> n % 3` returns an integer key (`0`, `1`, or `2`), so `groupingBy()` creates one group for each key. Use `partitioningBy()` for a two-way true/false split; use `groupingBy()` when there may be multiple categories.
 
 **Program 32. Second highest salary.**
 ```java
 Optional<Double> second = emps.stream().map(Employee::salary).distinct()
-        .sorted(Comparator.reverseOrder()).skip(1).findFirst();
+    .sorted(Comparator.reverseOrder()).skip(1).findFirst();
 ```
 
 **Program 33. Count employees per department, and average salary per department.**
 ```java
 Map<String, Long> count = emps.stream()
-        .collect(Collectors.groupingBy(Employee::dept, Collectors.counting()));
+    .collect(Collectors.groupingBy(Employee::dept, Collectors.counting()));
 
 Map<String, Double> avg = emps.stream()
-        .collect(Collectors.groupingBy(Employee::dept, Collectors.averagingDouble(Employee::salary)));
+    .collect(Collectors.groupingBy(Employee::dept, Collectors.averagingDouble(Employee::salary)));
 ```
 
 **Program 34. Highest paid employee in each department.**
 ```java
 Map<String, Optional<Employee>> top = emps.stream().collect(
-        Collectors.groupingBy(Employee::dept,
-                Collectors.maxBy(Comparator.comparingDouble(Employee::salary))));
+    Collectors.groupingBy(Employee::dept,
+        Collectors.maxBy(Comparator.comparingDouble(Employee::salary))));
 ```
 
 **Program 35. Sort by salary descending, then by name.**
@@ -500,18 +515,18 @@ emps.sort(Comparator.comparingDouble(Employee::salary).reversed().thenComparing(
 **Program 36. Character frequency and first non-repeating character with streams.**
 ```java
 Map<Character, Long> f = s.chars().mapToObj(c -> (char) c)
-        .collect(Collectors.groupingBy(Function.identity(), LinkedHashMap::new, Collectors.counting()));
+    .collect(Collectors.groupingBy(Function.identity(), LinkedHashMap::new, Collectors.counting()));
 
 Optional<Character> firstUnique = f.entrySet().stream()
-        .filter(e -> e.getValue() == 1).map(Map.Entry::getKey).findFirst();
+    .filter(e -> e.getValue() == 1).map(Map.Entry::getKey).findFirst();
 ```
 
 **Program 37. Find duplicate elements.**
 ```java
 Set<Integer> dups = nums.stream()
-        .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()))
-        .entrySet().stream().filter(e -> e.getValue() > 1)
-        .map(Map.Entry::getKey).collect(Collectors.toSet());
+    .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()))
+    .entrySet().stream().filter(e -> e.getValue() > 1)
+    .map(Map.Entry::getKey).collect(Collectors.toSet());
 ```
 
 **Program 38. Join, flatten, statistics and a stream palindrome check.**
@@ -524,7 +539,7 @@ IntSummaryStatistics st = nums.stream().mapToInt(Integer::intValue).summaryStati
 // st.getMin(), st.getMax(), st.getAverage(), st.getSum()
 
 boolean pal = IntStream.range(0, s.length() / 2)
-        .allMatch(i -> s.charAt(i) == s.charAt(s.length() - 1 - i));
+    .allMatch(i -> s.charAt(i) == s.charAt(s.length() - 1 - i));
 ```
 
 **Program 39. First 10 Fibonacci numbers with streams.**
